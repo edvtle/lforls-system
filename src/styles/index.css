@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: "Inter", "Roboto", "Segoe UI", sans-serif;
+  background: #0f0f0f;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.select-dropdown {
+  position: relative;
+}
+
+.select-dropdown select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 2.45rem;
+}
+
+.select-dropdown select option {
+  color: #10200e;
+  background: #e8f2e3;
+}
+
+.select-dropdown select option:checked {
+  color: #f3ffe9;
+  background: #2f6f1c;
+}
+
+.select-dropdown-icon {
+  position: absolute;
+  right: 0.88rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #e6f3df;
+  font-size: 1rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.select-dropdown-icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.select-dropdown select:focus + .select-dropdown-icon {
+  color: #ffffff;
+}
+
+html[data-theme="light"] .select-dropdown-icon,
+.app-shell.app-shell-light .select-dropdown-icon {
+  color: #111111;
+}

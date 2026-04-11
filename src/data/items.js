@@ -1,0 +1,107 @@
+export const homeItems = [
+  {
+    id: "wallet-001",
+    name: "Black Leather Wallet",
+    category: "Accessories",
+    location: "Library",
+    date: "2026-04-08",
+    status: "Lost",
+    matchPercent: 92,
+    brand: "Fossil",
+    color: "Black",
+    serialNumber: "WLT-4812",
+    gallery: [
+      "https://images.unsplash.com/photo-1556740714-a8395b3bf30f?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1610895224411-b6b5d0e9f2e7?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1627123424574-724758594e93?auto=format&fit=crop&w=1200&q=80",
+    ],
+    image:
+      "https://images.unsplash.com/photo-1556740714-a8395b3bf30f?auto=format&fit=crop&w=1200&q=80",
+    description: "Slim wallet with student ID, two cards, and a folded receipt.",
+  },
+  {
+    id: "bottle-014",
+    name: "Steel Water Bottle",
+    category: "Personal",
+    location: "Cafeteria",
+    date: "2026-04-07",
+    status: "Found",
+    matchPercent: 84,
+    brand: "HydraPeak",
+    color: "Silver",
+    serialNumber: "BOT-2194",
+    gallery: [
+      "https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1517649763962-0c623066013b?auto=format&fit=crop&w=1200&q=80",
+    ],
+    image:
+      "https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1200&q=80",
+    description: "Matte bottle with a worn sticker near the cap and a blue loop handle.",
+  },
+  {
+    id: "bag-022",
+    name: "Campus Sling Bag",
+    category: "Bags",
+    location: "Parking Area",
+    date: "2026-04-06",
+    status: "Lost",
+    matchPercent: 79,
+    brand: "Northfield",
+    color: "Charcoal",
+    serialNumber: "BAG-9081",
+    gallery: [
+      "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1506459225024-1428097a7e18?auto=format&fit=crop&w=1200&q=80",
+    ],
+    image:
+      "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=1200&q=80",
+    description: "Charcoal sling bag with charger cable, notebooks, and a zipper tag.",
+  },
+  {
+    id: "keys-008",
+    name: "Room Keys Set",
+    category: "Keys",
+    location: "Gym Lobby",
+    date: "2026-04-05",
+    status: "Found",
+    matchPercent: 88,
+    brand: "Yale",
+    color: "Silver and Green",
+    serialNumber: "KEY-2308",
+    gallery: [
+      "https://images.unsplash.com/photo-1582139329536-e7284fece509?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1529826796554-20d7f0f01b68?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1515923160016-0d2b0b0c5c5c?auto=format&fit=crop&w=1200&q=80",
+    ],
+    image:
+      "https://images.unsplash.com/photo-1582139329536-e7284fece509?auto=format&fit=crop&w=1200&q=80",
+    description: "Small ring of three keys with a green plastic tag and silver keychain.",
+  },
+  {
+    id: "headphones-017",
+    name: "Wireless Headphones",
+    category: "Electronics",
+    location: "Study Hall",
+    date: "2026-04-04",
+    status: "Lost",
+    matchPercent: 81,
+    brand: "AudioMax",
+    color: "Black",
+    serialNumber: "HDP-6710",
+    gallery: [
+      "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1484704849700-f032a568e944?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1518441902117-f0a0f2a0d7d7?auto=format&fit=crop&w=1200&q=80",
+    ],
+    image:
+      "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=1200&q=80",
+    description: "Black over-ear headphones with a padded case and a short charging cable.",
+  },
+];
+
+export const notificationPreview = [
+  "You have 2 new matches",
+  "Someone found your item",
+];
