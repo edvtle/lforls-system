@@ -88,7 +88,7 @@ const Auth = () => {
           <div className="auth-radar-overlay" />
           <div className="auth-brand-content">
             <AnimatedContent distance={36} delay={0.05} className="auth-motion-block">
-              <p className="auth-brand-small">PLP-L&F</p>
+              <p className="auth-brand-small">PLP</p>
             </AnimatedContent>
 
             <AnimatedContent distance={44} delay={0.12} className="auth-motion-block">
