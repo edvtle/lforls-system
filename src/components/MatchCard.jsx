@@ -7,13 +7,6 @@ const MatchCard = ({ item }) => {
     return null;
   }
 
-  const confidenceClass =
-    item.match.label === "Strong Match"
-      ? "match-card-confidence-strong"
-      : item.match.label === "Possible Match"
-        ? "match-card-confidence-possible"
-        : "match-card-confidence-weak";
-
   return (
     <article className="match-card">
       <img src={item.image} alt={item.name} className="match-card-image" />
@@ -24,7 +17,7 @@ const MatchCard = ({ item }) => {
             <p className="page-kicker">{item.match.score}% match</p>
             <h3>{item.name}</h3>
           </div>
-          <span className={`match-card-confidence ${confidenceClass}`}>{item.match.label}</span>
+          <span className="match-card-status">Found item</span>
         </div>
 
         <p className="match-card-meta">

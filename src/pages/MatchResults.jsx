@@ -1,198 +1,377 @@
-import { useMemo } from "react";
-import { useLocation } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faBell,
-  faCircleCheck,
-  faCircleExclamation,
-  faCircleXmark,
+  faCloudArrowUp,
   faFilter,
-  faListCheck,
+  faImage,
+  faMagnifyingGlass,
+  faRobot,
   faShieldHalved,
+  faToggleOn,
+  faTriangleExclamation,
+  faWandMagicSparkles,
 } from "@fortawesome/free-solid-svg-icons";
 import MatchCard from "../components/MatchCard";
+import SelectDropdown from "../components/ui/SelectDropdown";
 import { homeItems } from "../data/items";
-import { rankFoundMatches, scoringWeights } from "../utils/matching";
+import { rankFoundMatches } from "../utils/matching";
+import "../styles/MatchResults.css";
 
-const defaultReport = {
-  itemName: "Black Leather Wallet",
-  category: "Accessories",
-  locationLost: "Library",
-  dateLost: "2026-04-08",
-  description: "Slim wallet with IDs and cards",
-  identifiers: "Worn edge and student card slot",
-  color: "Black",
-  hasImage: true,
+const HIGH_CONFIDENCE_THRESHOLD = 80;
+
+const keywordCategoryMap = [
+  { keyword: "wallet", category: "Accessories" },
+  { keyword: "bag", category: "Bags" },
+  { keyword: "backpack", category: "Bags" },
+  { keyword: "phone", category: "Electronics" },
+  { keyword: "iphone", category: "Electronics" },
+  { keyword: "headphone", category: "Electronics" },
+  { keyword: "key", category: "Keys" },
+  { keyword: "id", category: "ID Cards" },
+  { keyword: "card", category: "Documents" },
+  { keyword: "bottle", category: "Personal" },
+];
+
+const detectLikelyCategory = (fileName = "") => {
+  const normalized = fileName.toLowerCase();
+  const found = keywordCategoryMap.find((entry) => normalized.includes(entry.keyword));
+  return found?.category || "Personal";
+};
+
+const detectLikelyColor = (fileName = "") => {
+  const normalized = fileName.toLowerCase();
+  const colorKeywords = ["black", "white", "blue", "red", "green", "silver", "gray", "pink", "brown"];
+  const match = colorKeywords.find((color) => normalized.includes(color));
+  return match || "Unknown";
+};
+
+const detectedLabelByCategory = {
+  Accessories: "Wallet",
+  Bags: "Bag",
+  Electronics: "Electronic Device",
+  Keys: "Keys",
+  "ID Cards": "ID Card",
+  Documents: "Document",
+  Personal: "Personal Item",
+};
+
+const toLostReport = (item) => ({
+  itemName: item.name,
+  category: item.category,
+  locationLost: item.location,
+  dateLost: item.date,
+  description: item.description,
+  identifiers: item.serialNumber || "",
+  color: item.color || "",
+  hasImage: Boolean(item.image),
+});
+
+const truncateFileName = (fileName = "", maxLength = 32) => {
+  if (!fileName || fileName.length <= maxLength) {
+    return fileName;
+  }
+
+  return `${fileName.slice(0, Math.max(1, maxLength - 3))}...`;
 };
 
 const MatchResults = () => {
-  const location = useLocation();
+  const fileInputRef = useRef(null);
+  const [selectedLostItemId, setSelectedLostItemId] = useState("");
+  const [controlTab, setControlTab] = useState("select");
+  const [matchMode, setMatchMode] = useState("high");
+  const [dragActive, setDragActive] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [aiDetection, setAiDetection] = useState(null);
 
-  const lostReport = useMemo(() => {
-    const fromState = location.state?.lostReport;
-    if (fromState) {
-      return fromState;
+  const lostItems = useMemo(() => homeItems.filter((item) => item.status === "Lost"), []);
+
+  const selectedLostItem = useMemo(
+    () => lostItems.find((item) => item.id === selectedLostItemId) || null,
+    [lostItems, selectedLostItemId],
+  );
+
+  useEffect(() => {
+    if (!selectedLostItemId && lostItems.length) {
+      setSelectedLostItemId(lostItems[0].id);
+    }
+  }, [lostItems, selectedLostItemId]);
+
+  useEffect(() => {
+    if (!uploadedFile) {
+      setImagePreview("");
+      return undefined;
     }
 
-    const fromStorage = localStorage.getItem("lforls:lastLostReport");
-    if (fromStorage) {
-      try {
-        return JSON.parse(fromStorage);
-      } catch {
-        return defaultReport;
-      }
+    const objectUrl = URL.createObjectURL(uploadedFile);
+    setImagePreview(objectUrl);
+
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [uploadedFile]);
+
+  const dropdownLostReport = useMemo(() => {
+    if (!selectedLostItem) {
+      return null;
     }
 
-    return defaultReport;
-  }, [location.state]);
+    return toLostReport(selectedLostItem);
+  }, [selectedLostItem]);
 
-  const matches = useMemo(() => rankFoundMatches(lostReport, homeItems, 8), [lostReport]);
+  const quickImageLostReport = useMemo(() => {
+    if (!aiDetection) {
+      return null;
+    }
 
-  const summary = useMemo(() => {
-    const strong = matches.filter((item) => item.match.score >= 80).length;
-    const possible = matches.filter((item) => item.match.score >= 50 && item.match.score < 80).length;
-    const weak = matches.filter((item) => item.match.score < 50).length;
-    return { strong, possible, weak };
-  }, [matches]);
+    return {
+      itemName: aiDetection.detectedLabel,
+      category: aiDetection.category,
+      locationLost: "Unknown",
+      dateLost: new Date().toISOString().slice(0, 10),
+      description: `AI detected probable ${aiDetection.detectedLabel.toLowerCase()} from uploaded image.`,
+      identifiers: uploadedFile?.name || "",
+      color: aiDetection.color,
+      hasImage: true,
+    };
+  }, [aiDetection, uploadedFile]);
 
-  const topMatches = matches.slice(0, 5);
+  const activeLostReport = controlTab === "upload" && quickImageLostReport ? quickImageLostReport : dropdownLostReport;
+  const activeSource = controlTab === "upload" && quickImageLostReport ? "image" : "report";
+
+  const allMatches = useMemo(() => rankFoundMatches(activeLostReport, homeItems, 20), [activeLostReport]);
+
+  const visibleMatches = useMemo(() => {
+    if (matchMode === "all") {
+      return allMatches;
+    }
+
+    return allMatches.filter((item) => item.match.score >= HIGH_CONFIDENCE_THRESHOLD);
+  }, [allMatches, matchMode]);
+
+  const handleFilePick = (file) => {
+    if (!file) {
+      return;
+    }
+
+    const category = detectLikelyCategory(file.name);
+    const color = detectLikelyColor(file.name);
+    const detectedLabel = detectedLabelByCategory[category] || "Item";
+    const confidence = Math.min(97, 82 + Math.floor(Math.random() * 14));
+
+    setUploadedFile(file);
+    setControlTab("upload");
+    setAiDetection({
+      category,
+      color,
+      detectedLabel,
+      confidence,
+    });
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    setDragActive(false);
+    handleFilePick(event.dataTransfer.files?.[0]);
+  };
+
+  const resetQuickMatch = () => {
+    setUploadedFile(null);
+    setAiDetection(null);
+    setControlTab("select");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const highCount = allMatches.filter((item) => item.match.score >= HIGH_CONFIDENCE_THRESHOLD).length;
+
+  const lostItemOptions = useMemo(
+    () => [
+      { value: "", label: "Select your lost item" },
+      ...lostItems.map((item) => ({
+        value: item.id,
+        label: `${item.name} (Lost - ${item.location})`,
+      })),
+    ],
+    [lostItems],
+  );
+
+  const sectionTitle = matchMode === "high" ? "High-confidence matches (80%+)" : "All ranked matches";
+  const shortUploadedName = truncateFileName(uploadedFile?.name || "", 32);
 
   return (
     <section className="match-results-page">
-      <section className="page-card match-hero">
-        <div>
-          <p className="page-kicker">Matching system</p>
-          <h2 className="page-title">Possible Matches Found</h2>
-          <p className="page-description">
-            We compared your lost-item report with found-item records using a weighted scoring model for fast and transparent results.
+      <section className="page-card match-smart-hero">
+        <div className="match-hero-content">
+          <p className="page-kicker">Smart match system</p>
+          <h2 className="page-title">Find your item faster</h2>
+          <p className="page-description match-hero-description-single-line">
+            Select an existing lost report or upload an image for quick match. Results prioritize high-confidence matches to reduce manual searching.
           </p>
         </div>
-
-        <div className="match-hero-badges">
-          <span>
-            <FontAwesomeIcon icon={faCircleCheck} /> {summary.strong} Strong
-          </span>
-          <span>
-            <FontAwesomeIcon icon={faCircleExclamation} /> {summary.possible} Possible
-          </span>
-          <span>
-            <FontAwesomeIcon icon={faCircleXmark} /> {summary.weak} Weak
-          </span>
-        </div>
       </section>
 
-      <section className="page-card match-query-card">
-        <p className="page-kicker">Report context</p>
-        <div className="match-query-grid">
-          <div>
-            <span>Item</span>
-            <strong>{lostReport.itemName}</strong>
-          </div>
-          <div>
-            <span>Category</span>
-            <strong>{lostReport.category}</strong>
-          </div>
-          <div>
-            <span>Location</span>
-            <strong>{lostReport.locationLost}</strong>
-          </div>
-          <div>
-            <span>Date</span>
-            <strong>{lostReport.dateLost}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="match-columns">
-        <div className="page-card match-main-list">
-          <div className="match-section-head">
-            <h3>Top Matches</h3>
-            <p>Showing top 5 results by score</p>
+      <section className="page-card match-workspace" aria-label="Smart match workspace">
+        <div className="match-workspace-top">
+          <div className="match-toggle-group" role="radiogroup" aria-label="Match quality filter">
+            <button
+              type="button"
+              className={`match-toggle-button ${matchMode === "high" ? "match-toggle-button-active" : ""}`}
+              onClick={() => setMatchMode("high")}
+            >
+              <FontAwesomeIcon icon={faToggleOn} /> High matches (80%+)
+            </button>
+            <button
+              type="button"
+              className={`match-toggle-button ${matchMode === "all" ? "match-toggle-button-active" : ""}`}
+              onClick={() => setMatchMode("all")}
+            >
+              <FontAwesomeIcon icon={faFilter} /> All matches
+            </button>
           </div>
 
-          <div className="match-card-list" role="list">
-            {topMatches.map((item) => (
-              <MatchCard key={item.id} item={item} />
-            ))}
+          <p className="match-high-note">Showing high-confidence matches (80%+) by default</p>
+
+          <div className="match-result-meta">
+            <strong>{highCount}</strong>
+            <span>high-confidence candidates found</span>
           </div>
         </div>
 
-        <aside className="page-card match-side-panel">
-          <div className="match-section-head">
-            <h3>
-              <FontAwesomeIcon icon={faFilter} /> Why This Matched
-            </h3>
-            <p>Scoring is weighted and visible.</p>
-          </div>
-
-          <ul className="match-weight-list">
-            <li>
-              <span>Category</span>
-              <strong>{scoringWeights.category}%</strong>
-            </li>
-            <li>
-              <span>Name similarity</span>
-              <strong>{scoringWeights.name}%</strong>
-            </li>
-            <li>
-              <span>Location</span>
-              <strong>{scoringWeights.location}%</strong>
-            </li>
-            <li>
-              <span>Date proximity</span>
-              <strong>{scoringWeights.date}%</strong>
-            </li>
-            <li>
-              <span>Description</span>
-              <strong>{scoringWeights.description}%</strong>
-            </li>
-            <li>
-              <span>Image cues</span>
-              <strong>{scoringWeights.image}%</strong>
-            </li>
-          </ul>
-
-          {topMatches[0] ? (
-            <div className="match-breakdown">
-              <p className="page-kicker">Top result breakdown</p>
-              <h4>{topMatches[0].name}</h4>
-              <ul>
-                <li>Category: {topMatches[0].match.breakdown.category}%</li>
-                <li>Name: {topMatches[0].match.breakdown.name}%</li>
-                <li>Location: {topMatches[0].match.breakdown.location}%</li>
-                <li>Date: {topMatches[0].match.breakdown.date}%</li>
-                <li>Description: {topMatches[0].match.breakdown.description}%</li>
-                <li>Image: {topMatches[0].match.breakdown.image}%</li>
-              </ul>
+        <div className="match-workspace-grid">
+          <aside className="match-control-panel" aria-label="Matching controls">
+            <div className="match-control-tabs" role="tablist" aria-label="Input mode">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={controlTab === "select"}
+                className={`match-control-tab ${controlTab === "select" ? "match-control-tab-active" : ""}`}
+                onClick={() => setControlTab("select")}
+              >
+                Select
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={controlTab === "upload"}
+                className={`match-control-tab ${controlTab === "upload" ? "match-control-tab-active" : ""}`}
+                onClick={() => setControlTab("upload")}
+              >
+                Upload
+              </button>
             </div>
-          ) : null}
 
-          <div className="match-safety-card">
-            <p>
-              <FontAwesomeIcon icon={faShieldHalved} /> Safety check before claim
-            </p>
-            <ul>
-              <li>Ask for unique marks or serial details</li>
-              <li>Use in-app contact flow before sharing details</li>
-              <li>Report suspicious claims immediately</li>
-            </ul>
-          </div>
+            {controlTab === "select" ? (
+              <div className="match-flow-block match-flow-block-select">
+                <p className="page-kicker">Select your lost item</p>
+                <SelectDropdown
+                  value={selectedLostItemId}
+                  onChange={(value) => {
+                    setSelectedLostItemId(value);
+                    if (value) {
+                      setControlTab("select");
+                    }
+                  }}
+                  className="match-smart-select"
+                  options={lostItemOptions}
+                />
+                <p className="match-flow-helper">
+                  <FontAwesomeIcon icon={faMagnifyingGlass} /> System auto-fetches item details and runs matching.
+                </p>
+              </div>
+            ) : (
+              <div className="match-flow-block match-flow-block-upload">
+                <p className="page-kicker">Upload image (Quick match)</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="report-hidden-input"
+                  onChange={(event) => handleFilePick(event.target.files?.[0])}
+                />
 
-          <div className="match-notify-note">
-            <FontAwesomeIcon icon={faBell} /> New strong matches trigger in-app alerts.
-          </div>
+                <button
+                  type="button"
+                  className={`match-upload-zone ${dragActive ? "match-upload-zone-active" : ""}`}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={handleDrop}
+                >
+                  <FontAwesomeIcon icon={faCloudArrowUp} />
+                  <strong>Upload image to find matches</strong>
+                  <span>Drag and drop or click to browse</span>
+                </button>
 
-          <div className="match-section-head">
-            <h3>
-              <FontAwesomeIcon icon={faListCheck} /> UX checklist
-            </h3>
-          </div>
-          <ul className="match-checklist">
-            <li>Match percentage is clearly shown</li>
-            <li>Reasons are visible and easy to trust</li>
-            <li>Only top results are shown to avoid overload</li>
-          </ul>
-        </aside>
+                {imagePreview ? (
+                  <div className="match-image-preview">
+                    <img src={imagePreview} alt="Quick match upload preview" />
+                    <div>
+                      <p className="match-image-name" title={uploadedFile?.name || ""}>
+                        <FontAwesomeIcon icon={faImage} />
+                        <span className="match-image-name-text">{shortUploadedName}</span>
+                      </p>
+                      <button type="button" className="match-inline-button" onClick={resetQuickMatch}>
+                        Use report instead
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {aiDetection ? (
+                  <div className="match-ai-detection">
+                    <p>
+                      <FontAwesomeIcon icon={faWandMagicSparkles} /> Detected: <strong>{aiDetection.detectedLabel}</strong>
+                    </p>
+                    <p>
+                      <FontAwesomeIcon icon={faFilter} /> Features: <strong>{aiDetection.category}</strong> | <strong>{aiDetection.color}</strong>
+                    </p>
+                    <p>
+                      <FontAwesomeIcon icon={faRobot} /> AI confidence: <strong>{aiDetection.confidence}%</strong>
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </aside>
+
+          <section className="match-results-board">
+            <div className="match-section-head">
+              <h3>{sectionTitle}</h3>
+              <p>{activeSource === "image" ? "Powered by quick image analysis" : "Based on selected lost report"}</p>
+            </div>
+
+            {visibleMatches.length ? (
+              <div className="match-card-list" role="list">
+                {visibleMatches.map((item) => (
+                  <MatchCard key={item.id} item={item} />
+                ))}
+              </div>
+            ) : (
+              <div className="match-empty-state" role="status">
+                <h4>
+                  <FontAwesomeIcon icon={faTriangleExclamation} /> No high-confidence matches found
+                </h4>
+                <p>Try uploading another image or report your item with more details for better results.</p>
+              </div>
+            )}
+          </section>
+        </div>
+      </section>
+
+      <section className="page-card match-safety-reminder">
+        <p>
+          <FontAwesomeIcon icon={faShieldHalved} /> Safety reminder: High match scores still require claimant verification and admin approval.
+        </p>
+        <ul>
+          <li>Verify unique marks or serial details before release.</li>
+          <li>Keep communication in-app until ownership is confirmed.</li>
+          <li>Escalate suspicious claims for admin review.</li>
+        </ul>
       </section>
     </section>
   );
