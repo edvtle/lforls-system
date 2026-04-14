@@ -316,6 +316,24 @@
   object-fit: cover;
 }
 
+.profile-empty-state {
+  border: 1px dashed rgba(93, 214, 44, 0.28);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.profile-empty-state h4,
+.profile-empty-state p {
+  margin: 0;
+}
+
+.profile-empty-state p {
+  color: #b3c5ac;
+}
+
 .profile-report-copy {
   padding: 0.7rem;
   display: grid;

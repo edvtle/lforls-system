@@ -16,6 +16,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import AnimatedContent from "../components/AnimatedContent";
 import SearchBar from "../components/ui/SearchBar";
 import { clearAuthSession, getAuthSession } from "../utils/authSession";
+import { claimsUpdatedEventName, getClaims, updateClaimStatus as persistClaimStatus } from "../utils/claimStore";
 import "../styles/AdminPanel.css";
 
 const menuItems = [
@@ -37,11 +38,6 @@ const seedUsers = [
   { id: "USR-01", name: "John Dela Cruz", email: "john@example.com", reportsCount: 6, status: "Active" },
   { id: "USR-02", name: "Mia Santos", email: "mia@example.com", reportsCount: 2, status: "Suspended" },
   { id: "USR-03", name: "Carl Ramos", email: "carl@example.com", reportsCount: 4, status: "Active" },
-];
-
-const seedClaims = [
-  { id: "CLM-301", item: "Black Jansport Backpack", user: "John Dela Cruz", answers: "States zipper damage and notebook initials", status: "Pending" },
-  { id: "CLM-302", item: "Student ID - CCS", user: "Anne Lim", answers: "Knows student number and course details", status: "Pending" },
 ];
 
 const seedFlags = [
@@ -67,7 +63,7 @@ const AdminPanel = () => {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState(seedItems);
   const [users, setUsers] = useState(seedUsers);
-  const [claims, setClaims] = useState(seedClaims);
+  const [claims, setClaims] = useState(() => getClaims());
   const [flags, setFlags] = useState(seedFlags);
   const [snackbar, setSnackbar] = useState({ open: false, message: "" });
 
@@ -83,6 +79,12 @@ const AdminPanel = () => {
   useEffect(() => {
     const themeMode = window.localStorage.getItem("lforls:themeMode") || "dark";
     document.documentElement.dataset.theme = themeMode;
+  }, []);
+
+  useEffect(() => {
+    const refreshClaims = () => setClaims(getClaims());
+    window.addEventListener(claimsUpdatedEventName, refreshClaims);
+    return () => window.removeEventListener(claimsUpdatedEventName, refreshClaims);
   }, []);
 
   const showSnackbar = (message) => {
@@ -123,7 +125,10 @@ const AdminPanel = () => {
       return claims;
     }
 
-    return claims.filter((claim) => `${claim.id} ${claim.item} ${claim.user} ${claim.answers}`.toLowerCase().includes(normalizedQuery));
+    return claims.filter((claim) => {
+      const haystack = `${claim.id} ${claim.item} ${claim.fullName} ${claim.contact} ${claim.collegeDept || ""} ${claim.programYear || ""} ${claim.routeTo}`.toLowerCase();
+      return haystack.includes(normalizedQuery);
+    });
   }, [claims, normalizedQuery]);
 
   const filteredFlags = useMemo(() => {
@@ -150,7 +155,8 @@ const AdminPanel = () => {
   };
 
   const updateClaimStatus = (id, status) => {
-    setClaims((current) => current.map((claim) => (claim.id === id ? { ...claim, status } : claim)));
+    persistClaimStatus(id, status);
+    setClaims(getClaims());
     showSnackbar(`Claim ${id} ${status.toLowerCase()}.`);
   };
 
@@ -353,7 +359,10 @@ const AdminPanel = () => {
               <th>Claim ID</th>
               <th>Item</th>
               <th>Claiming User</th>
-              <th>Verification Answers</th>
+              <th>Contact</th>
+              <th>College Dept</th>
+              <th>Program Year</th>
+              <th>Route</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -362,8 +371,11 @@ const AdminPanel = () => {
               <tr key={claim.id}>
                 <td>{claim.id}</td>
                 <td>{claim.item}</td>
-                <td>{claim.user}</td>
-                <td>{claim.answers}</td>
+                <td>{claim.fullName}</td>
+                <td>{claim.contact}</td>
+                <td>{claim.collegeDept || "N/A"}</td>
+                <td>{claim.programYear || "N/A"}</td>
+                <td>{claim.routeTo || "admin-panel"}</td>
                 <td>
                   <div className="admin-action-row">
                     <button type="button" className="admin-action admin-action-approve" onClick={() => updateClaimStatus(claim.id, "Approved")}>Approve</button>

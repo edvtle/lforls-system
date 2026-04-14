@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowLeft,
@@ -17,7 +17,10 @@ import {
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import Modal from "../components/Modal";
-import { homeItems } from "../data/items";
+import { claimsUpdatedEventName, createClaim, getClaims, updateClaimStatus as persistClaimStatus } from "../utils/claimStore";
+import { getMarketplaceItems } from "../utils/itemStore";
+import { updateUserReportByItemId } from "../utils/reportStore";
+import { createNotification } from "../utils/notificationStore";
 
 const getStatusTone = (status) => status.toLowerCase();
 
@@ -27,6 +30,38 @@ const formatDate = (value) =>
     day: "numeric",
     year: "numeric",
   });
+
+const getModalConfig = (type) => {
+  if (type === "claim") {
+    return {
+      title: "Verify Ownership",
+      helper: "This helps confirm you are the rightful owner.",
+      submitLabel: "Submit Claim",
+    };
+  }
+
+  if (type === "contact") {
+    return {
+      title: "Request controlled messaging",
+      helper: "Send a message through the app without exposing personal contact details.",
+      submitLabel: "Send request",
+    };
+  }
+
+  if (type === "notify") {
+    return {
+      title: "Notify the owner",
+      helper: "Alert the owner through the safe in-app workflow.",
+      submitLabel: "Send alert",
+    };
+  }
+
+  return {
+    title: "Report fake item",
+    helper: "Use this if the listing appears misleading or incorrect.",
+    submitLabel: "Send report",
+  };
+};
 
 const Icon = ({ type }) => {
   const icons = {
@@ -74,7 +109,9 @@ const Icon = ({ type }) => {
 
 const Details = () => {
   const { itemId } = useParams();
-  const item = homeItems.find((entry) => entry.id === itemId);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const marketplaceItems = getMarketplaceItems();
+  const item = marketplaceItems.find((entry) => entry.id === itemId);
 
   if (!item) {
     return (
@@ -92,7 +129,7 @@ const Details = () => {
   const gallery = item.gallery?.length ? item.gallery : [item.image];
 
   const relatedItems = useMemo(() => {
-    return homeItems
+    return marketplaceItems
       .filter((entry) => entry.id !== item.id)
       .map((entry) => {
         const score = [
@@ -106,7 +143,7 @@ const Details = () => {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 4);
-  }, [item]);
+  }, [item, marketplaceItems]);
 
   const [selectedImage, setSelectedImage] = useState(gallery[0]);
   const [activeModal, setActiveModal] = useState(null);
@@ -114,11 +151,14 @@ const Details = () => {
   const [claimed, setClaimed] = useState(false);
   const [fakeReported, setFakeReported] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState("");
+  const [claimerModalOpen, setClaimerModalOpen] = useState(false);
+  const [itemClaims, setItemClaims] = useState([]);
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
   const [formState, setFormState] = useState({
-    name: "",
-    email: "",
-    proof: "",
+    fullName: "",
+    contact: "",
+    collegeDept: "",
+    programYear: "",
     details: "",
   });
 
@@ -159,42 +199,104 @@ const Details = () => {
     };
   }, [activeModal]);
 
+  useEffect(() => {
+    const refreshItemClaims = () => {
+      const allClaims = getClaims();
+      const claimsForCurrentItem = allClaims.filter((claim) => claim.itemId === item.id);
+      setItemClaims(claimsForCurrentItem);
+    };
+
+    refreshItemClaims();
+    window.addEventListener(claimsUpdatedEventName, refreshItemClaims);
+    return () => window.removeEventListener(claimsUpdatedEventName, refreshItemClaims);
+  }, [item.id]);
+
   const openModal = (type) => {
     setSubmissionStatus("");
-    setActiveModal({
-      type,
-      title:
-        type === "claim"
-          ? "Request to claim this item"
-          : type === "contact"
-            ? "Request controlled messaging"
-            : type === "notify"
-              ? "Notify the owner"
-              : "Report fake item",
-      helper:
-        type === "claim"
-          ? "Submit verification details. Contact stays hidden until the request is reviewed."
-          : type === "contact"
-            ? "Send a message through the app without exposing personal contact details."
-            : type === "notify"
-              ? "Alert the owner through the safe in-app workflow."
-              : "Use this if the listing appears misleading or incorrect.",
-      submitLabel:
-        type === "report"
-          ? "Send report"
-          : type === "notify"
-            ? "Send alert"
-            : "Send request",
-    });
+    setActiveModal({ type, ...getModalConfig(type) });
   };
+
+  useEffect(() => {
+    if (searchParams.get("claim") !== "1") {
+      return;
+    }
+
+    openModal("claim");
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("claim");
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const closeModal = () => {
     setActiveModal(null);
     setSubmissionStatus("");
   };
 
+  const pendingClaim = useMemo(
+    () => itemClaims.find((claim) => claim.status === "Pending") || null,
+    [itemClaims],
+  );
+
+  const approvedClaim = useMemo(
+    () => itemClaims.find((claim) => claim.status === "Approved") || null,
+    [itemClaims],
+  );
+
+  useEffect(() => {
+    if (item.status === "Found") {
+      setClaimed(Boolean(approvedClaim));
+    }
+  }, [approvedClaim, item.status]);
+
+  const handleFoundItemClaimedClick = () => {
+    if (claimed) {
+      showSnackbar("Item is already marked as claimed.");
+      return;
+    }
+
+    setClaimerModalOpen(true);
+  };
+
+  const handleApproveClaim = () => {
+    if (!pendingClaim) {
+      showSnackbar("No pending claimer credentials found for this item.");
+      return;
+    }
+
+    persistClaimStatus(pendingClaim.id, "Approved");
+    updateUserReportByItemId(item.id, { reportStatus: "Claimed" });
+    setClaimed(true);
+    setClaimerModalOpen(false);
+    setSubmissionStatus("Item marked as claimed after reviewing claimer credentials.");
+    showSnackbar("Item marked as claimed.");
+  };
+
   const handleSubmit = (event) => {
     event.preventDefault();
+
+    if (activeModal?.type === "claim") {
+      createClaim({
+        itemId: item.id,
+        item: item.name,
+        fullName: formState.fullName,
+        contact: formState.contact,
+        collegeDept: formState.collegeDept,
+        programYear: formState.programYear,
+        routeTo: item.status === "Found" ? "item-owner" : "admin-panel",
+      });
+
+      createNotification({
+        type: "claim",
+        priority: "high",
+        title: "Claim verification submitted",
+        body: "Claim submitted. Waiting for approval.",
+        path: "/admin",
+      });
+
+      setSubmissionStatus("Claim submitted. Waiting for approval.");
+      return;
+    }
+
     setSubmissionStatus(
       activeModal?.type === "report"
         ? "Report sent. Review is queued and the listing remains hidden from direct contact."
@@ -203,9 +305,10 @@ const Details = () => {
   };
 
   const statusTone = getStatusTone(item.status);
-  const primaryActionLabel = item.status === "Lost" ? "This is my item" : "Notify Owner";
+  const hasClaimRequest = item.status === "Found" && itemClaims.length > 0;
+  const primaryActionLabel = item.status === "Lost" ? "This is my item" : hasClaimRequest ? "Claimed" : "Notify Owner";
   const secondaryActionLabel = item.status === "Lost" ? "Contact Finder" : "Not a match";
-  const primaryActionType = item.status === "Lost" ? "claim" : "notify";
+  const primaryActionType = item.status === "Lost" ? "claim" : hasClaimRequest ? "claimed-review" : "notify";
   const secondaryActionIcon = item.status === "Lost" ? "message" : "close";
   const secondaryActionType = item.status === "Lost" ? "contact" : null;
 
@@ -290,14 +393,29 @@ const Details = () => {
 
               <button
                 type="button"
-                className={`details-ghost-button ${claimed ? "details-ghost-active" : ""}`}
+                className={`details-ghost-button ${(claimed || Boolean(approvedClaim)) ? "details-ghost-active" : ""}`}
+                disabled={item.status === "Found" && (claimed || Boolean(approvedClaim))}
                 onClick={() => {
+                  if (item.status === "Found") {
+                    handleFoundItemClaimedClick();
+                    return;
+                  }
+
                   setClaimed((current) => !current);
                   showSnackbar(!claimed ? "Marked as claimed" : "Claim removed");
                 }}
-                title={claimed ? "Marked as claimed" : "Mark as claimed"}
+                title={
+                  item.status === "Found"
+                    ? (claimed || Boolean(approvedClaim))
+                      ? "Already claimed"
+                      : "Review claimer credentials"
+                    : claimed
+                      ? "Marked as claimed"
+                      : "Mark as claimed"
+                }
               >
                 <Icon type="shield" />
+                {item.status === "Found" ? "Claimed" : claimed ? "Claimed" : "Claim"}
               </button>
 
               <button
@@ -410,7 +528,14 @@ const Details = () => {
             <button
               type="button"
               className={`details-action-button ${item.status === "Lost" ? "details-action-primary-lost" : "details-action-primary-found"}`}
-              onClick={() => openModal(primaryActionType)}
+              onClick={() => {
+                if (item.status === "Found" && hasClaimRequest) {
+                  handleFoundItemClaimedClick();
+                  return;
+                }
+
+                openModal(primaryActionType);
+              }}
             >
               <Icon type="check" />
               {primaryActionLabel}
@@ -500,53 +625,97 @@ const Details = () => {
               </div>
             ) : (
               <form className="details-flow-form" onSubmit={handleSubmit}>
-                <div className="details-form-grid">
-                  <label className="details-form-field">
-                    <span>Your name</span>
-                    <input
-                      type="text"
-                      value={formState.name}
-                      onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
-                      placeholder="Full name"
-                      required
-                    />
-                  </label>
+                {activeModal?.type === "claim" ? (
+                  <>
+                    <div className="details-form-grid">
+                      <label className="details-form-field">
+                        <span>Full Name</span>
+                        <input
+                          type="text"
+                          value={formState.fullName}
+                          onChange={(event) => setFormState((current) => ({ ...current, fullName: event.target.value }))}
+                          placeholder="Enter your full name"
+                          required
+                        />
+                      </label>
 
-                  <label className="details-form-field">
-                    <span>Email</span>
-                    <input
-                      type="email"
-                      value={formState.email}
-                      onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
-                      placeholder="name@example.com"
-                      required
-                    />
-                  </label>
-                </div>
+                      <label className="details-form-field">
+                        <span>Contact Number / Email</span>
+                        <input
+                          type="text"
+                          value={formState.contact}
+                          onChange={(event) => setFormState((current) => ({ ...current, contact: event.target.value }))}
+                          placeholder="09xx xxx xxxx or name@email.com"
+                          required
+                        />
+                      </label>
+                    </div>
 
-                <label className="details-form-field">
-                  <span>Verification detail</span>
-                  <input
-                    type="text"
-                    value={formState.proof}
-                    onChange={(event) => setFormState((current) => ({ ...current, proof: event.target.value }))}
-                    placeholder="Describe a unique identifier"
-                  />
-                </label>
+                    <label className="details-form-field">
+                      <span>College Dept</span>
+                      <input
+                        type="text"
+                        value={formState.collegeDept}
+                        onChange={(event) => setFormState((current) => ({ ...current, collegeDept: event.target.value }))}
+                        placeholder="e.g., College of Computer Studies"
+                        required
+                      />
+                    </label>
 
-                <label className="details-form-field">
-                  <span>Message</span>
-                  <textarea
-                    value={formState.details}
-                    onChange={(event) => setFormState((current) => ({ ...current, details: event.target.value }))}
-                    placeholder="Share any verification notes or context"
-                    rows={4}
-                    required
-                  />
-                </label>
+                    <label className="details-form-field">
+                      <span>Program Year</span>
+                      <input
+                        type="text"
+                        value={formState.programYear}
+                        onChange={(event) => setFormState((current) => ({ ...current, programYear: event.target.value }))}
+                        placeholder="e.g., BSIT - 3rd Year"
+                        required
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <div className="details-form-grid">
+                      <label className="details-form-field">
+                        <span>Your name</span>
+                        <input
+                          type="text"
+                          value={formState.fullName}
+                          onChange={(event) => setFormState((current) => ({ ...current, fullName: event.target.value }))}
+                          placeholder="Full name"
+                          required
+                        />
+                      </label>
+
+                      <label className="details-form-field">
+                        <span>Email</span>
+                        <input
+                          type="email"
+                          value={formState.contact}
+                          onChange={(event) => setFormState((current) => ({ ...current, contact: event.target.value }))}
+                          placeholder="name@example.com"
+                          required
+                        />
+                      </label>
+                    </div>
+
+                    <label className="details-form-field">
+                      <span>Message</span>
+                      <textarea
+                        value={formState.details}
+                        onChange={(event) => setFormState((current) => ({ ...current, details: event.target.value }))}
+                        placeholder="Share any verification notes or context"
+                        rows={4}
+                        required
+                      />
+                    </label>
+                  </>
+                )}
 
                 <p className="details-flow-note">
-                  Full contact details stay hidden. The message is routed through the app and reviewed before any next step.
+                  {activeModal?.type === "claim"
+                    ? "This helps confirm you are the rightful owner before release."
+                    : "Full contact details stay hidden. The message is routed through the app and reviewed before any next step."}
                 </p>
 
                 <div className="details-flow-actions">
@@ -559,6 +728,69 @@ const Details = () => {
                 </div>
               </form>
             )}
+      </Modal>
+
+      <Modal
+        isOpen={claimerModalOpen}
+        onClose={() => setClaimerModalOpen(false)}
+        ariaLabel="Claimer credentials"
+        overlayClassName="details-flow-modal"
+        panelClassName="details-flow-panel"
+      >
+        <div className="details-modal-head">
+          <div>
+            <p className="page-kicker">Claim review</p>
+            <h3 className="page-title">Claimer Credentials</h3>
+            <p className="details-flow-note">Review the claimant details before confirming this found item as claimed.</p>
+          </div>
+
+          <button type="button" className="details-close-button" onClick={() => setClaimerModalOpen(false)} aria-label="Close dialog">
+            <Icon type="close" />
+          </button>
+        </div>
+
+        {pendingClaim ? (
+          <div className="details-flow-form">
+            <div className="details-form-grid">
+              <label className="details-form-field">
+                <span>Name</span>
+                <input type="text" value={pendingClaim.fullName || ""} readOnly />
+              </label>
+
+              <label className="details-form-field">
+                <span>Email / Contact Number</span>
+                <input type="text" value={pendingClaim.contact || ""} readOnly />
+              </label>
+
+              <label className="details-form-field">
+                <span>College Dept</span>
+                <input type="text" value={pendingClaim.collegeDept || ""} readOnly />
+              </label>
+
+              <label className="details-form-field">
+                <span>Program Year</span>
+                <input type="text" value={pendingClaim.programYear || ""} readOnly />
+              </label>
+            </div>
+
+            <div className="details-flow-actions">
+              <button type="button" className="details-ghost-button" onClick={() => setClaimerModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="details-flow-submit" onClick={handleApproveClaim}>
+                Mark as Claimed
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="details-form-success">
+            <Icon type="shield" />
+            <p>No pending claimer credentials found for this item.</p>
+            <button type="button" className="details-flow-submit" onClick={() => setClaimerModalOpen(false)}>
+              Close
+            </button>
+          </div>
+        )}
       </Modal>
 
       {snackbar.visible && (

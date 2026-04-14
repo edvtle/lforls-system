@@ -13,17 +13,26 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { homeItems } from "../data/items";
 import SelectDropdown from "../components/ui/SelectDropdown";
+import { createFoundItemReport } from "../utils/itemStore";
+import { createUserReport } from "../utils/reportStore";
 
 const TOTAL_STEPS = 4;
 
 const categoryOptions = [
-  "Accessories",
-  "Bags",
   "Electronics",
-  "Keys",
-  "Personal",
-  "Documents",
-  "ID Cards",
+  "Wallet",
+  "Bag",
+  "ID",
+  "Clothing",
+  "Others",
+];
+
+const structuredCategories = [
+  "Electronics",
+  "Wallet",
+  "Bag",
+  "ID",
+  "Clothing",
   "Others",
 ];
 
@@ -43,6 +52,7 @@ const contactMethodOptions = ["Email", "Phone"];
 const emptyForm = {
   itemName: "",
   category: "",
+  customCategory: "",
   locationFound: "",
   description: "",
   color: "",
@@ -63,13 +73,15 @@ const getStepTitle = (step) => {
 
 const detectLikelyCategory = (fileName = "", itemName = "") => {
   const source = `${fileName} ${itemName}`.toLowerCase();
-  if (source.includes("wallet")) return "Accessories";
-  if (source.includes("bag") || source.includes("backpack")) return "Bags";
+  if (source.includes("wallet")) return "Wallet";
+  if (source.includes("bag") || source.includes("backpack")) return "Bag";
   if (source.includes("headphone") || source.includes("charger")) return "Electronics";
-  if (source.includes("key")) return "Keys";
-  if (source.includes("id") || source.includes("card")) return "ID Cards";
-  return "Personal";
+  if (source.includes("id") || source.includes("card")) return "ID";
+  if (source.includes("shirt") || source.includes("clothing") || source.includes("jacket")) return "Clothing";
+  return "Others";
 };
+
+const getResolvedCategory = (form) => (form.category === "Others" ? form.customCategory.trim() : form.category.trim());
 
 const ReportFoundItem = () => {
   const [step, setStep] = useState(1);
@@ -136,6 +148,7 @@ const ReportFoundItem = () => {
     if (targetStep === 1) {
       if (!form.itemName.trim()) nextErrors.itemName = "This field is required";
       if (!form.category.trim()) nextErrors.category = "This field is required";
+      if (form.category === "Others" && !form.customCategory.trim()) nextErrors.customCategory = "This field is required";
       if (!form.locationFound.trim()) nextErrors.locationFound = "This field is required";
     }
 
@@ -192,6 +205,31 @@ const ReportFoundItem = () => {
     if (!validateStep(1) || !validateStep(2) || !validateStep(4)) {
       return;
     }
+
+    const resolvedCategory = getResolvedCategory(form);
+
+    const createdItem = createFoundItemReport({
+      itemName: form.itemName,
+      category: resolvedCategory,
+      locationFound: form.locationFound,
+      description: form.description,
+      color: form.color,
+      brand: form.brand,
+      identifiers: form.identifiers,
+      uploadedImage: imagePreview,
+    });
+
+    createUserReport({
+      type: "Found",
+      itemId: createdItem.id,
+      itemName: createdItem.name,
+      category: resolvedCategory,
+      location: createdItem.location,
+      image: createdItem.image,
+      reportStatus: "Found",
+      path: `/details/${createdItem.id}`,
+      description: createdItem.description,
+    });
 
     setSubmitted(true);
   };
@@ -266,7 +304,12 @@ const ReportFoundItem = () => {
                 <span>Category</span>
                 <SelectDropdown
                   value={form.category}
-                  onChange={(value) => updateField("category", value)}
+                  onChange={(value) => {
+                    updateField("category", value);
+                    if (value !== "Others") {
+                      updateField("customCategory", "");
+                    }
+                  }}
                   className="report-select"
                   options={[
                     { value: "", label: "Select category" },
@@ -276,6 +319,19 @@ const ReportFoundItem = () => {
                 {errors.category ? <em>{errors.category}</em> : null}
               </label>
             </div>
+
+            {form.category === "Others" ? (
+              <label className="report-field">
+                <span>Enter category name</span>
+                <input
+                  type="text"
+                  value={form.customCategory}
+                  onChange={(event) => updateField("customCategory", event.target.value)}
+                  placeholder="Enter category name"
+                />
+                {errors.customCategory ? <em>{errors.customCategory}</em> : null}
+              </label>
+            ) : null}
 
             <label className="report-field">
               <span>Location found</span>
@@ -448,7 +504,7 @@ const ReportFoundItem = () => {
               </div>
               <div>
                 <span>Category</span>
-                <strong>{form.category || "-"}</strong>
+                <strong>{getResolvedCategory(form) || "-"}</strong>
               </div>
               <div>
                 <span>Location found</span>

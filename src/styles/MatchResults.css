@@ -537,6 +537,17 @@
   transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
 }
 
+.match-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.match-card-action-claim {
+  border-color: rgba(143, 231, 97, 0.62);
+  background: rgba(93, 214, 44, 0.18);
+}
+
 .match-card-action:hover {
   border-color: rgba(143, 231, 97, 0.62);
   background: rgba(12, 19, 13, 0.92);

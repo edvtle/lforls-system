@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTag, faLocationDot, faCircleQuestion, faCalendarDays } from "@fortawesome/free-solid-svg-icons";
 import SearchBar from "../components/ui/SearchBar";
 import SelectDropdown from "../components/ui/SelectDropdown";
-import { homeItems } from "../data/items";
+import { getMarketplaceItems } from "../utils/itemStore";
 import "../styles/Browse.css";
 
 const categoryOptions = ["All", "Electronics", "IDs", "Bags", "Clothing", "Others"];
@@ -56,9 +56,11 @@ const BrowseItems = () => {
   const [visibleCount, setVisibleCount] = useState(4);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
 
+  const items = getMarketplaceItems();
+
   const enrichedItems = useMemo(
-    () => homeItems.map((item) => ({ ...item, browseCategory: inferCategory(item) })),
-    [],
+    () => items.map((item) => ({ ...item, browseCategory: inferCategory(item) })),
+    [items],
   );
 
   const locationSuggestions = useMemo(

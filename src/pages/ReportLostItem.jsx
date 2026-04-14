@@ -17,19 +17,20 @@ import { homeItems } from "../data/items";
 import SelectDropdown from "../components/ui/SelectDropdown";
 import { createNotification } from "../utils/notificationStore";
 import { rankFoundMatches } from "../utils/matching";
+import { createUserReport } from "../utils/reportStore";
 
 const TOTAL_STEPS = 4;
 
 const categoryOptions = [
-  "Accessories",
-  "Bags",
   "Electronics",
-  "Keys",
-  "Personal",
-  "Documents",
-  "ID Cards",
+  "Wallet",
+  "Bag",
+  "ID",
+  "Clothing",
   "Others",
 ];
+
+const structuredCategories = ["Electronics", "Wallet", "Bag", "ID", "Clothing", "Others"];
 
 const locationOptions = [
   "Library",
@@ -47,6 +48,7 @@ const contactMethodOptions = ["Email", "Phone"];
 const emptyForm = {
   itemName: "",
   category: "",
+  customCategory: "",
   locationLost: "",
   description: "",
   color: "",
@@ -58,16 +60,17 @@ const emptyForm = {
 };
 
 const keywordCategoryMap = [
-  { keyword: "wallet", category: "Accessories" },
-  { keyword: "bag", category: "Bags" },
-  { keyword: "backpack", category: "Bags" },
+  { keyword: "wallet", category: "Wallet" },
+  { keyword: "bag", category: "Bag" },
+  { keyword: "backpack", category: "Bag" },
   { keyword: "headphone", category: "Electronics" },
   { keyword: "earbuds", category: "Electronics" },
   { keyword: "charger", category: "Electronics" },
-  { keyword: "key", category: "Keys" },
-  { keyword: "id", category: "ID Cards" },
-  { keyword: "card", category: "Documents" },
-  { keyword: "document", category: "Documents" },
+  { keyword: "id", category: "ID" },
+  { keyword: "card", category: "ID" },
+  { keyword: "document", category: "ID" },
+  { keyword: "shirt", category: "Clothing" },
+  { keyword: "jacket", category: "Clothing" },
 ];
 
 const getStepTitle = (step) => {
@@ -80,8 +83,10 @@ const getStepTitle = (step) => {
 const detectLikelyCategory = (fileName = "", itemName = "") => {
   const source = `${fileName} ${itemName}`.toLowerCase();
   const match = keywordCategoryMap.find((entry) => source.includes(entry.keyword));
-  return match?.category || "Personal";
+  return match?.category || "Others";
 };
+
+const getResolvedCategory = (form) => (form.category === "Others" ? form.customCategory.trim() : form.category.trim());
 
 const ReportLostItem = () => {
   const navigate = useNavigate();
@@ -125,7 +130,16 @@ const ReportLostItem = () => {
       .filter((item) => source.includes(item.name.toLowerCase().split(" ")[0]))
       .map((item) => item.category);
 
-    return [...new Set([...fromKeywords, ...fromExistingItems])].slice(0, 4);
+    return [...new Set([...fromKeywords, ...fromExistingItems])]
+      .map((category) => {
+        if (["Accessories", "Personal"].includes(category)) return "Wallet";
+        if (["Bags", "Bag"].includes(category)) return "Bag";
+        if (["ID Cards", "Documents"].includes(category)) return "ID";
+        if (["Electronics", "Clothing", "Others", "Wallet", "ID"].includes(category)) return category;
+        return "Others";
+      })
+      .filter((category, index, list) => list.indexOf(category) === index)
+      .slice(0, 4);
   }, [form.itemName, form.description]);
 
   const similarItems = useMemo(() => {
@@ -167,6 +181,7 @@ const ReportLostItem = () => {
     if (targetStep === 1) {
       if (!form.itemName.trim()) nextErrors.itemName = "This field is required";
       if (!form.category.trim()) nextErrors.category = "This field is required";
+      if (form.category === "Others" && !form.customCategory.trim()) nextErrors.customCategory = "This field is required";
       if (!form.locationLost.trim()) nextErrors.locationLost = "This field is required";
     }
 
@@ -227,7 +242,7 @@ const ReportLostItem = () => {
 
     const lostReport = {
       itemName: form.itemName,
-      category: form.category,
+      category: getResolvedCategory(form),
       locationLost: form.locationLost,
       dateLost: new Date().toISOString().slice(0, 10),
       description: form.description,
@@ -241,6 +256,16 @@ const ReportLostItem = () => {
     const strongCount = topMatches.filter((entry) => entry.match.score >= 80).length;
 
     localStorage.setItem("lforls:lastLostReport", JSON.stringify(lostReport));
+    createUserReport({
+      type: "Lost",
+      itemName: lostReport.itemName,
+      category: lostReport.category,
+      location: lostReport.locationLost,
+      image: uploadedFile ? imagePreview : "",
+      reportStatus: "Lost",
+      path: "/matches",
+      description: lostReport.description,
+    });
 
     createNotification({
       type: "match",
@@ -326,7 +351,12 @@ const ReportLostItem = () => {
                 <span>Category</span>
                 <SelectDropdown
                   value={form.category}
-                  onChange={(value) => updateField("category", value)}
+                  onChange={(value) => {
+                    updateField("category", value);
+                    if (value !== "Others") {
+                      updateField("customCategory", "");
+                    }
+                  }}
                   className="report-select"
                   options={[
                     { value: "", label: "Select category" },
@@ -336,6 +366,19 @@ const ReportLostItem = () => {
                 {errors.category ? <em>{errors.category}</em> : null}
               </label>
             </div>
+
+            {form.category === "Others" ? (
+              <label className="report-field">
+                <span>Enter category name</span>
+                <input
+                  type="text"
+                  value={form.customCategory}
+                  onChange={(event) => updateField("customCategory", event.target.value)}
+                  placeholder="Enter category name"
+                />
+                {errors.customCategory ? <em>{errors.customCategory}</em> : null}
+              </label>
+            ) : null}
 
             <label className="report-field">
               <span>Location lost</span>
@@ -362,7 +405,19 @@ const ReportLostItem = () => {
                 </p>
                 <div>
                   {suggestedCategories.map((category) => (
-                    <button key={category} type="button" onClick={() => updateField("category", category)}>
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => {
+                        if (structuredCategories.includes(category) && category !== "Others") {
+                          updateField("category", category);
+                          updateField("customCategory", "");
+                        } else {
+                          updateField("category", "Others");
+                          updateField("customCategory", category);
+                        }
+                      }}
+                    >
                       {category}
                     </button>
                   ))}
@@ -513,7 +568,7 @@ const ReportLostItem = () => {
               </div>
               <div>
                 <span>Category</span>
-                <strong>{form.category || "-"}</strong>
+                <strong>{getResolvedCategory(form) || "-"}</strong>
               </div>
               <div>
                 <span>Location</span>
