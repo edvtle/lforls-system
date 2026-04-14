@@ -3,23 +3,24 @@ import ItemCard from "../components/ItemCard";
 import ActionButtonLink from "../components/ui/ActionButtonLink";
 import SearchBar from "../components/ui/SearchBar";
 import SelectDropdown from "../components/ui/SelectDropdown";
-import { homeItems } from "../data/items";
+import { getMarketplaceItems } from "../utils/itemStore";
 import "../styles/Home.css";
-
-const categoryOptions = ["All Categories", ...new Set(homeItems.map((item) => item.category))];
-const locationOptions = ["All Locations", ...new Set(homeItems.map((item) => item.location))];
-const dateOptions = ["All Dates", ...new Set(homeItems.map((item) => item.date))];
 
 const Home = () => {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All Categories");
   const [location, setLocation] = useState("All Locations");
   const [date, setDate] = useState("All Dates");
+  const items = getMarketplaceItems();
+
+  const categoryOptions = useMemo(() => ["All Categories", ...new Set(items.map((item) => item.category))], [items]);
+  const locationOptions = useMemo(() => ["All Locations", ...new Set(items.map((item) => item.location))], [items]);
+  const dateOptions = useMemo(() => ["All Dates", ...new Set(items.map((item) => item.date))], [items]);
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    return homeItems.filter((item) => {
+    return items.filter((item) => {
       const matchesQuery =
         !query ||
         [item.name, item.category, item.location, item.status, item.date].some((value) =>
@@ -31,9 +32,9 @@ const Home = () => {
 
       return matchesQuery && matchesCategory && matchesLocation && matchesDate;
     });
-  }, [search, category, location, date]);
+  }, [search, category, location, date, items]);
 
-  const hasItems = homeItems.length > 0;
+  const hasItems = items.length > 0;
   const showEmptyState = hasItems && filteredItems.length === 0;
   const promoImagePath = "/manconfused.png";
 

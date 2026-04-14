@@ -7,6 +7,7 @@ import {
   faPaperPlane,
   faShieldHalved,
 } from "@fortawesome/free-solid-svg-icons";
+import Modal from "../components/Modal";
 import {
   getConversationMessages,
   getConversations,
@@ -15,6 +16,7 @@ import {
   sendMessage,
   updateConversationFlags,
 } from "../utils/messagingStore";
+import { createClaim } from "../utils/claimStore";
 import { createNotification } from "../utils/notificationStore";
 
 const formatTime = (isoDate) => {
@@ -31,7 +33,12 @@ const Messages = () => {
   const [conversationQuery, setConversationQuery] = useState("");
   const [messageText, setMessageText] = useState("");
   const [showVerification, setShowVerification] = useState(false);
-  const [verification, setVerification] = useState({ description: "", proof: "" });
+  const [verification, setVerification] = useState({
+    fullName: "",
+    contact: "",
+    collegeDept: "",
+    programYear: "",
+  });
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
 
   const showSnackbar = (message) => {
@@ -126,14 +133,34 @@ const Messages = () => {
       return;
     }
 
-    if (!verification.description.trim() || !verification.proof.trim()) {
-      showSnackbar("Complete both verification fields.");
+    if (
+      !verification.fullName.trim() ||
+      !verification.contact.trim() ||
+      !verification.collegeDept.trim() ||
+      !verification.programYear.trim()
+    ) {
+      showSnackbar("Complete all required ownership fields.");
       return;
     }
 
-    const payload = `Claim request submitted. Item description: ${verification.description}. Proof: ${verification.proof}.`;
+    createClaim({
+      itemId: activeConversation.id,
+      item: activeConversation.context,
+      fullName: verification.fullName,
+      contact: verification.contact,
+      collegeDept: verification.collegeDept,
+      programYear: verification.programYear,
+      routeTo: "item-owner",
+    });
+
+    const payload = `Claim request submitted. Details provided for ownership verification.`;
     sendMessage(activeConversation.id, payload, "me");
-    setVerification({ description: "", proof: "" });
+    setVerification({
+      fullName: "",
+      contact: "",
+      collegeDept: "",
+      programYear: "",
+    });
     setShowVerification(false);
     setConversations(getConversations());
 
@@ -141,11 +168,11 @@ const Messages = () => {
       type: "claim",
       priority: "high",
       title: "Claim verification submitted",
-      body: "Your ownership proof was sent securely for review.",
+      body: "Claim submitted. Waiting for approval.",
       path: "/messages",
     });
 
-    showSnackbar("Verification submitted for review.");
+    showSnackbar("Claim submitted. Waiting for approval.");
   };
 
   const handleReportUser = () => {
@@ -259,32 +286,6 @@ const Messages = () => {
                 <FontAwesomeIcon icon={faCircleCheck} /> This is my item (claim verification)
               </button>
 
-              {showVerification ? (
-                <div className="messages-verify-box">
-                  <label>
-                    Describe the item
-                    <input
-                      type="text"
-                      value={verification.description}
-                      onChange={(event) => setVerification((current) => ({ ...current, description: event.target.value }))}
-                      placeholder="Add recognizable details"
-                    />
-                  </label>
-                  <label>
-                    Proof of ownership
-                    <textarea
-                      value={verification.proof}
-                      onChange={(event) => setVerification((current) => ({ ...current, proof: event.target.value }))}
-                      placeholder="Serial number, receipt detail, or unique mark"
-                      rows={3}
-                    />
-                  </label>
-                  <button type="button" className="hero-button hero-button-lost" onClick={submitVerification}>
-                    Submit verification
-                  </button>
-                </div>
-              ) : null}
-
               <div className="messages-thread" role="log" aria-live="polite">
                 {messages.map((entry) => (
                   <div
@@ -329,6 +330,88 @@ const Messages = () => {
       </div>
 
       {snackbar.visible ? <div className="details-snackbar">{snackbar.message}</div> : null}
+
+      <Modal
+        isOpen={showVerification}
+        onClose={() => setShowVerification(false)}
+        ariaLabel="Verify Ownership"
+        overlayClassName="details-flow-modal"
+        panelClassName="details-flow-panel"
+      >
+        <div className="details-modal-head">
+          <div>
+            <p className="page-kicker">Controlled flow</p>
+            <h3 className="page-title">Verify Ownership</h3>
+            <p className="details-flow-note">This helps confirm you are the rightful owner.</p>
+          </div>
+          <button type="button" className="details-close-button" onClick={() => setShowVerification(false)} aria-label="Close dialog">
+            x
+          </button>
+        </div>
+
+        <form
+          className="details-flow-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitVerification();
+          }}
+        >
+          <div className="details-form-grid">
+            <label className="details-form-field">
+              <span>Full Name</span>
+              <input
+                type="text"
+                value={verification.fullName}
+                onChange={(event) => setVerification((current) => ({ ...current, fullName: event.target.value }))}
+                placeholder="Enter your full name"
+                required
+              />
+            </label>
+
+            <label className="details-form-field">
+              <span>Contact Number / Email</span>
+              <input
+                type="text"
+                value={verification.contact}
+                onChange={(event) => setVerification((current) => ({ ...current, contact: event.target.value }))}
+                placeholder="09xx xxx xxxx or name@email.com"
+                required
+              />
+            </label>
+          </div>
+
+          <label className="details-form-field">
+            <span>College Dept</span>
+            <input
+              type="text"
+              value={verification.collegeDept}
+              onChange={(event) => setVerification((current) => ({ ...current, collegeDept: event.target.value }))}
+              placeholder="e.g., College of Computer Studies"
+              required
+            />
+          </label>
+
+          <label className="details-form-field">
+            <span>Program Year</span>
+            <input
+              type="text"
+              value={verification.programYear}
+              onChange={(event) => setVerification((current) => ({ ...current, programYear: event.target.value }))}
+              placeholder="e.g., BSIT - 3rd Year"
+              required
+            />
+          </label>
+
+          <div className="details-flow-actions">
+            <button type="button" className="details-ghost-button" onClick={() => setShowVerification(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="details-flow-submit">
+              Submit Claim
+            </button>
+          </div>
+        </form>
+      </Modal>
     </section>
   );
 };

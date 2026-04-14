@@ -1,0 +1,100 @@
+.notifications-page {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.notification-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.notification-tabs {
+  display: inline-flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.notification-tab,
+.notification-mark-all {
+  border: 1px solid rgba(93, 214, 44, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #dfe8dc;
+  font-weight: 700;
+  padding: 0.45rem 0.78rem;
+  cursor: pointer;
+}
+
+.notification-tab-active {
+  color: #031402;
+  background: linear-gradient(145deg, #8fe761, #68cd45);
+}
+
+.notification-mark-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.notification-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid rgba(93, 214, 44, 0.14);
+}
+
+.notification-item-read {
+  opacity: 0.7;
+}
+
+.notification-item-high {
+  border-color: rgba(143, 231, 97, 0.5);
+  box-shadow: 0 0 0 1px rgba(93, 214, 44, 0.22);
+}
+
+.notification-title,
+.notification-copy,
+.notification-time {
+  margin: 0;
+}
+
+.notification-open-action {
+  border: 0;
+  cursor: pointer;
+}
+
+.notification-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #efffe8;
+  font-weight: 700;
+}
+
+.notification-copy {
+  margin-top: 0.28rem;
+}
+
+.notification-time {
+  margin-top: 0.45rem;
+  font-size: 0.8rem;
+  color: #9db393;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.notification-empty {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(93, 214, 44, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  gap: 0.7rem;
+  justify-items: start;
+}
+

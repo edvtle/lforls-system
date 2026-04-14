@@ -13,7 +13,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import MatchCard from "../components/MatchCard";
 import SelectDropdown from "../components/ui/SelectDropdown";
-import { homeItems } from "../data/items";
+import { getMarketplaceItems } from "../utils/itemStore";
 import { rankFoundMatches } from "../utils/matching";
 import "../styles/MatchResults.css";
 
@@ -83,8 +83,9 @@ const MatchResults = () => {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [aiDetection, setAiDetection] = useState(null);
+  const marketplaceItems = getMarketplaceItems();
 
-  const lostItems = useMemo(() => homeItems.filter((item) => item.status === "Lost"), []);
+  const lostItems = useMemo(() => marketplaceItems.filter((item) => item.status === "Lost"), [marketplaceItems]);
 
   const selectedLostItem = useMemo(
     () => lostItems.find((item) => item.id === selectedLostItemId) || null,
@@ -139,7 +140,7 @@ const MatchResults = () => {
   const activeLostReport = controlTab === "upload" && quickImageLostReport ? quickImageLostReport : dropdownLostReport;
   const activeSource = controlTab === "upload" && quickImageLostReport ? "image" : "report";
 
-  const allMatches = useMemo(() => rankFoundMatches(activeLostReport, homeItems, 20), [activeLostReport]);
+  const allMatches = useMemo(() => rankFoundMatches(activeLostReport, marketplaceItems, 20), [activeLostReport, marketplaceItems]);
 
   const visibleMatches = useMemo(() => {
     if (matchMode === "all") {

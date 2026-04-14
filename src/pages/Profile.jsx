@@ -17,17 +17,11 @@ import {
   faUser,
 } from "@fortawesome/free-solid-svg-icons";
 import SelectDropdown from "../components/ui/SelectDropdown";
-import { homeItems } from "../data/items";
 import { clearAuthSession } from "../utils/authSession";
+import { deleteUserReportById, getUserReports, reportsUpdatedEventName, updateUserReportById } from "../utils/reportStore";
 import "../styles/Profile.css";
 
 const reportFilters = ["All", "Lost", "Found", "Claimed"];
-
-const seedReports = homeItems.map((item) => ({
-  ...item,
-  reportStatus: item.id === "keys-008" ? "Claimed" : item.status,
-  type: item.status,
-}));
 
 const formatRelative = (isoDate) => {
   const then = new Date(isoDate).getTime();
@@ -52,7 +46,7 @@ const Profile = () => {
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState("account");
   const [reportFilter, setReportFilter] = useState("All");
-  const [reports, setReports] = useState(seedReports);
+  const [reports, setReports] = useState(() => getUserReports());
   const [editingReportId, setEditingReportId] = useState("");
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
   const [profile, setProfile] = useState({
@@ -106,6 +100,12 @@ const Profile = () => {
     const timer = setTimeout(() => setSnackbar({ visible: false, message: "" }), 2600);
     return () => clearTimeout(timer);
   }, [snackbar.visible]);
+
+  useEffect(() => {
+    const refreshReports = () => setReports(getUserReports());
+    window.addEventListener(reportsUpdatedEventName, refreshReports);
+    return () => window.removeEventListener(reportsUpdatedEventName, refreshReports);
+  }, []);
 
   const showSnackbar = (message) => {
     setSnackbar({ visible: true, message });
@@ -179,7 +179,7 @@ const Profile = () => {
       ...reports.slice(0, 4).map((entry) => ({
         id: `report-${entry.id}`,
         text: `You reported ${entry.name}`,
-        time: entry.date,
+        time: entry.createdAt,
       })),
     ];
 
@@ -199,6 +199,7 @@ const Profile = () => {
   };
 
   const deleteReport = (id) => {
+    deleteUserReportById(id);
     setReports((current) => current.filter((entry) => entry.id !== id));
     if (editingReportId === id) {
       setEditingReportId("");
@@ -230,80 +231,88 @@ const Profile = () => {
       </div>
 
       <div className={filteredReports.length === 1 ? "profile-report-grid profile-report-grid-compact" : "profile-report-grid"}>
-        {filteredReports.map((entry) => (
-          <article key={entry.id} className="profile-report-card">
-            <img src={entry.image} alt={entry.name} />
-            <div className="profile-report-copy">
-              <p className="page-kicker">{entry.category}</p>
-              <h4>{entry.name}</h4>
-              <span className={`profile-status profile-status-${entry.reportStatus.toLowerCase()}`}>{entry.reportStatus}</span>
+        {filteredReports.length ? (
+          filteredReports.map((entry) => (
+            <article key={entry.id} className="profile-report-card">
+              <img src={entry.image} alt={entry.name} />
+              <div className="profile-report-copy">
+                <p className="page-kicker">{entry.category}</p>
+                <h4>{entry.name}</h4>
+                <span className={`profile-status profile-status-${entry.reportStatus.toLowerCase()}`}>{entry.reportStatus}</span>
 
-              {editingReportId === entry.id ? (
-                <div className="profile-edit-grid">
-                  <input
-                    type="text"
-                    value={entry.name}
-                    onChange={(event) =>
-                      setReports((current) =>
-                        current.map((item) => (item.id === entry.id ? { ...item, name: event.target.value } : item))
-                      )
-                    }
-                  />
-                  <input
-                    type="text"
-                    value={entry.location}
-                    onChange={(event) =>
-                      setReports((current) =>
-                        current.map((item) => (item.id === entry.id ? { ...item, location: event.target.value } : item))
-                      )
-                    }
-                  />
-                  <SelectDropdown
-                    value={entry.reportStatus}
-                    onChange={(value) =>
-                      setReports((current) =>
-                        current.map((item) => (item.id === entry.id ? { ...item, reportStatus: value } : item))
-                      )
-                    }
-                    className="profile-edit-select"
-                    options={["Lost", "Found", "Claimed"]}
-                  />
+                {editingReportId === entry.id ? (
+                  <div className="profile-edit-grid">
+                    <input
+                      type="text"
+                      value={entry.name}
+                      onChange={(event) =>
+                        setReports((current) =>
+                          current.map((item) => (item.id === entry.id ? { ...item, name: event.target.value } : item))
+                        )
+                      }
+                    />
+                    <input
+                      type="text"
+                      value={entry.location}
+                      onChange={(event) =>
+                        setReports((current) =>
+                          current.map((item) => (item.id === entry.id ? { ...item, location: event.target.value } : item))
+                        )
+                      }
+                    />
+                    <SelectDropdown
+                      value={entry.reportStatus}
+                      onChange={(value) =>
+                        setReports((current) =>
+                          current.map((item) => (item.id === entry.id ? { ...item, reportStatus: value } : item))
+                        )
+                      }
+                      className="profile-edit-select"
+                      options={["Lost", "Found", "Claimed"]}
+                    />
+                  </div>
+                ) : (
+                  <p className="profile-report-meta">{entry.location} • {formatRelative(entry.createdAt)}</p>
+                )}
+
+                <div className="profile-card-actions">
+                  <Link to={entry.path || `/details/${entry.id}`} className="hero-button hero-button-lost">
+                    View
+                  </Link>
+                  <button
+                    type="button"
+                    className="profile-inline-btn"
+                    onClick={() => {
+                      if (editingReportId === entry.id) {
+                        updateUserReportById(entry.id, entry);
+                        setEditingReportId("");
+                        showSnackbar("Report changes saved.");
+                      } else {
+                        setEditingReportId(entry.id);
+                      }
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faPen} /> {editingReportId === entry.id ? "Save" : "Edit"}
+                  </button>
+                  <button
+                    type="button"
+                    className="profile-inline-btn profile-inline-btn-danger profile-inline-btn-icon-only"
+                    onClick={() => deleteReport(entry.id)}
+                    aria-label="Delete report"
+                    title="Delete report"
+                  >
+                    <FontAwesomeIcon icon={faTrash} />
+                  </button>
                 </div>
-              ) : (
-                <p className="profile-report-meta">{entry.location} • {entry.date}</p>
-              )}
-
-              <div className="profile-card-actions">
-                <Link to={`/details/${entry.id}`} className="hero-button hero-button-lost">
-                  View
-                </Link>
-                <button
-                  type="button"
-                  className="profile-inline-btn"
-                  onClick={() => {
-                    if (editingReportId === entry.id) {
-                      setEditingReportId("");
-                      showSnackbar("Report changes saved.");
-                    } else {
-                      setEditingReportId(entry.id);
-                    }
-                  }}
-                >
-                  <FontAwesomeIcon icon={faPen} /> {editingReportId === entry.id ? "Save" : "Edit"}
-                </button>
-                <button
-                  type="button"
-                  className="profile-inline-btn profile-inline-btn-danger profile-inline-btn-icon-only"
-                  onClick={() => deleteReport(entry.id)}
-                  aria-label="Delete report"
-                  title="Delete report"
-                >
-                  <FontAwesomeIcon icon={faTrash} />
-                </button>
               </div>
-            </div>
-          </article>
-        ))}
+            </article>
+          ))
+        ) : (
+          <div className="profile-empty-state">
+            <h4>No reports yet</h4>
+            <p>Submitted lost and found items will appear here after you report them.</p>
+          </div>
+        )}
       </div>
     </section>
   );

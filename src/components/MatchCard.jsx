@@ -1,11 +1,15 @@
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpRightFromSquare, faLocationDot, faTag } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpRightFromSquare, faCircleCheck, faLocationDot, faTag } from "@fortawesome/free-solid-svg-icons";
+import { getClaims } from "../utils/claimStore";
 
 const MatchCard = ({ item }) => {
   if (!item) {
     return null;
   }
+
+  const itemClaims = getClaims().filter((claim) => claim.itemId === item.id);
+  const hasClaimRequest = item.status === "Found" && itemClaims.length > 0;
 
   return (
     <article className="match-card">
@@ -28,9 +32,14 @@ const MatchCard = ({ item }) => {
           {item.match.reasons.length ? item.match.reasons.map((reason) => <span key={reason}>{reason}</span>) : <span>Limited similarity signals</span>}
         </div>
 
-        <Link className="match-card-action" to={`/details/${item.id}`}>
-          View details <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
-        </Link>
+        <div className="match-card-actions">
+          <Link className="match-card-action" to={`/details/${item.id}`}>
+            View details <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
+          </Link>
+          <Link className="match-card-action match-card-action-claim" to={`/details/${item.id}?claim=1`}>
+            {hasClaimRequest ? "Claimed" : "Claim Item"} <FontAwesomeIcon icon={faCircleCheck} />
+          </Link>
+        </div>
       </div>
     </article>
   );
