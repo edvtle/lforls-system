@@ -11,27 +11,50 @@ import Notifications from "../pages/Notifications";
 import Profile from "../pages/Profile";
 import ReportFoundItem from "../pages/ReportFoundItem";
 import ReportLostItem from "../pages/ReportLostItem";
-import { getAuthSession } from "../utils/authSession";
+import { useAuth } from "../context/AuthContext";
+
+const resolveHomePath = (role) => (role === "admin" ? "/admin" : "/home");
+
+const RouteLoading = () => (
+  <div className="flex min-h-screen items-center justify-center bg-[#0c120e] text-[#d7e9d0]">
+    Loading session...
+  </div>
+);
 
 const PublicAuthRoute = ({ children }) => {
-  const session = getAuthSession();
+  const { isInitializing, isAuthenticated, profile } = useAuth();
 
-  if (!session) {
+  if (isInitializing) {
+    return <RouteLoading />;
+  }
+
+  if (!isAuthenticated) {
     return children;
   }
 
-  return <Navigate to={session.role === "admin" ? "/admin" : "/home"} replace />;
+  return <Navigate to={resolveHomePath(profile?.role || "user")} replace />;
 };
 
 const RequireRole = ({ roles, children }) => {
-  const session = getAuthSession();
+  const { isInitializing, isAuthenticated, profile } = useAuth();
 
-  if (!session) {
+  if (isInitializing) {
+    return <RouteLoading />;
+  }
+
+  if (!isAuthenticated) {
     return <Navigate to="/auth" replace />;
   }
 
-  if (!roles.includes(session.role)) {
-    return <Navigate to={session.role === "admin" ? "/admin" : "/home"} replace />;
+  const role = profile?.role || "user";
+  const status = profile?.status || "active";
+
+  if (status !== "active") {
+    return <Navigate to="/auth" replace />;
+  }
+
+  if (!roles.includes(role)) {
+    return <Navigate to={resolveHomePath(role)} replace />;
   }
 
   return children;

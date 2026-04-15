@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ItemCard from "../components/ItemCard";
 import ActionButtonLink from "../components/ui/ActionButtonLink";
 import SearchBar from "../components/ui/SearchBar";
 import SelectDropdown from "../components/ui/SelectDropdown";
 import { getMarketplaceItems } from "../utils/itemStore";
+import { listRecentItems } from "../services/itemsService";
+import { isSupabaseConfigured } from "../services/supabaseClient";
 import "../styles/Home.css";
 
 const Home = () => {
@@ -11,7 +13,47 @@ const Home = () => {
   const [category, setCategory] = useState("All Categories");
   const [location, setLocation] = useState("All Locations");
   const [date, setDate] = useState("All Dates");
-  const items = getMarketplaceItems();
+  const [items, setItems] = useState(() => (isSupabaseConfigured ? [] : getMarketplaceItems()));
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!isSupabaseConfigured) {
+      return undefined;
+    }
+
+    const loadItems = async () => {
+      setIsLoading(true);
+      setLoadError("");
+
+      try {
+        const remoteItems = await listRecentItems({
+          search,
+          category,
+          location,
+          date,
+        });
+
+        if (!isMounted) return;
+        setItems(remoteItems);
+      } catch (error) {
+        if (!isMounted) return;
+        setLoadError(error?.message || "Unable to load latest items.");
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadItems();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [search, category, location, date]);
 
   const categoryOptions = useMemo(() => ["All Categories", ...new Set(items.map((item) => item.category))], [items]);
   const locationOptions = useMemo(() => ["All Locations", ...new Set(items.map((item) => item.location))], [items]);
@@ -34,8 +76,7 @@ const Home = () => {
     });
   }, [search, category, location, date, items]);
 
-  const hasItems = items.length > 0;
-  const showEmptyState = hasItems && filteredItems.length === 0;
+  const showEmptyState = filteredItems.length === 0;
   const promoImagePath = "/manconfused.png";
 
   return (
@@ -90,8 +131,8 @@ const Home = () => {
               <div className="empty-illustration" aria-hidden="true">
                 <span>⌁</span>
               </div>
-              <h4>No items match your filters.</h4>
-              <p>Try changing category, location, date, or search keyword.</p>
+              <h4>{isLoading ? "Loading latest items..." : "No items match your filters."}</h4>
+              <p>{loadError || "Try changing category, location, date, or search keyword."}</p>
             </section>
           ) : (
             <div className="items-grid items-grid-compact">

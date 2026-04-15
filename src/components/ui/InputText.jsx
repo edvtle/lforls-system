@@ -7,6 +7,11 @@ const InputText = ({
   trailing,
   onTrailingClick,
   name,
+  disabled = false,
+  maxLength,
+  inputMode,
+  autoComplete,
+  pattern,
 }) => {
   return (
     <label className="relative block">
@@ -18,12 +23,18 @@ const InputText = ({
           value={value}
           onChange={onChange}
           placeholder={placeholder}
+          disabled={disabled}
+          maxLength={maxLength}
+          inputMode={inputMode}
+          autoComplete={autoComplete}
+          pattern={pattern}
           className="auth-input-field h-12 w-full bg-transparent px-4 text-[16px] font-normal text-[#F8F8F8] outline-none placeholder:font-normal placeholder:text-[#F8F8F8]/45"
         />
         {trailing && (
           <button
             type="button"
             onClick={onTrailingClick}
+            disabled={disabled}
             className="auth-input-trailing mr-2 inline-flex h-8 w-8 items-center justify-center text-[#5DD62C] hover:opacity-95"
             aria-label="Toggle password visibility"
           >

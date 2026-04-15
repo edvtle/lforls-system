@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCamera,
@@ -11,10 +11,9 @@ import {
   faWandMagic,
   faTrash,
 } from "@fortawesome/free-solid-svg-icons";
-import { homeItems } from "../data/items";
 import SelectDropdown from "../components/ui/SelectDropdown";
-import { createFoundItemReport } from "../utils/itemStore";
-import { createUserReport } from "../utils/reportStore";
+import { useAuth } from "../context/AuthContext";
+import { submitItemReport } from "../services/reportingService";
 
 const TOTAL_STEPS = 4;
 
@@ -84,6 +83,7 @@ const detectLikelyCategory = (fileName = "", itemName = "") => {
 const getResolvedCategory = (form) => (form.category === "Others" ? form.customCategory.trim() : form.category.trim());
 
 const ReportFoundItem = () => {
+  const { profile } = useAuth();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
@@ -92,6 +92,7 @@ const ReportFoundItem = () => {
   const [dragActive, setDragActive] = useState(false);
   const [aiDetected, setAiDetected] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -109,25 +110,6 @@ const ReportFoundItem = () => {
   }, [uploadedFile]);
 
   const progressPercent = Math.round((step / TOTAL_STEPS) * 100);
-
-  const suggestedMatches = useMemo(() => {
-    const foundName = form.itemName.toLowerCase();
-
-    return homeItems
-      .filter((item) => item.status === "Lost")
-      .filter((item) => {
-        if (form.category && item.category === form.category) {
-          return true;
-        }
-
-        if (!foundName) {
-          return false;
-        }
-
-        return item.name.toLowerCase().includes(foundName);
-      })
-      .slice(0, 3);
-  }, [form.category, form.itemName]);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -199,39 +181,49 @@ const ReportFoundItem = () => {
     }
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
     if (!validateStep(1) || !validateStep(2) || !validateStep(4)) {
       return;
     }
 
-    const resolvedCategory = getResolvedCategory(form);
+    if (!profile?.id) {
+      setErrors((current) => ({ ...current, contactValue: current.contactValue || "You must be logged in." }));
+      return;
+    }
 
-    const createdItem = createFoundItemReport({
-      itemName: form.itemName,
-      category: resolvedCategory,
-      locationFound: form.locationFound,
-      description: form.description,
-      color: form.color,
-      brand: form.brand,
-      identifiers: form.identifiers,
-      uploadedImage: imagePreview,
-    });
+    setIsSubmitting(true);
 
-    createUserReport({
-      type: "Found",
-      itemId: createdItem.id,
-      itemName: createdItem.name,
-      category: resolvedCategory,
-      location: createdItem.location,
-      image: createdItem.image,
-      reportStatus: "Found",
-      path: `/details/${createdItem.id}`,
-      description: createdItem.description,
-    });
+    try {
+      await submitItemReport({
+        reporterId: profile.id,
+        type: "found",
+        payload: {
+          itemName: form.itemName,
+          category: getResolvedCategory(form),
+          customCategory: form.category === "Others" ? form.customCategory : "",
+          locationText: form.locationFound,
+          description: form.description,
+          color: form.color,
+          brand: form.brand,
+          identifiers: form.identifiers,
+          contactMethod: form.contactMethod,
+          contactValue: form.contactValue,
+          notifyOnMatch: form.allowOwnerAlerts,
+        },
+        file: uploadedFile,
+      });
 
-    setSubmitted(true);
+      setSubmitted(true);
+    } catch (error) {
+      setErrors((current) => ({
+        ...current,
+        contactValue: error?.message || "Unable to submit report.",
+      }));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (submitted) {
@@ -411,26 +403,11 @@ const ReportFoundItem = () => {
               />
             </label>
 
-            {suggestedMatches.length ? (
-              <div className="report-suggestions report-similar">
-                <p>
-                  <FontAwesomeIcon icon={faWandMagic} /> Potential matching lost reports
-                </p>
-                <ul>
-                  {suggestedMatches.map((item) => (
-                    <li key={item.id}>
-                      <img src={item.image} alt={item.name} />
-                      <div>
-                        <strong>{item.name}</strong>
-                        <span>
-                          {item.category} - {item.location}
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+            <div className="report-suggestions report-similar">
+              <p>
+                <FontAwesomeIcon icon={faWandMagic} /> Matching candidates are generated from live lost reports in the database after submission.
+              </p>
+            </div>
           </section>
         ) : null}
 
@@ -574,7 +551,7 @@ const ReportFoundItem = () => {
             </button>
           ) : (
             <button type="submit" className="report-primary-button">
-              <FontAwesomeIcon icon={faPaperPlane} /> Submit report
+              <FontAwesomeIcon icon={faPaperPlane} /> {isSubmitting ? "Submitting..." : "Submit report"}
             </button>
           )}
         </div>

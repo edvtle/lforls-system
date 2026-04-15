@@ -13,11 +13,9 @@ import {
   faWandMagic,
   faTrash,
 } from "@fortawesome/free-solid-svg-icons";
-import { homeItems } from "../data/items";
 import SelectDropdown from "../components/ui/SelectDropdown";
-import { createNotification } from "../utils/notificationStore";
-import { rankFoundMatches } from "../utils/matching";
-import { createUserReport } from "../utils/reportStore";
+import { useAuth } from "../context/AuthContext";
+import { submitItemReport } from "../services/reportingService";
 
 const TOTAL_STEPS = 4;
 
@@ -90,6 +88,7 @@ const getResolvedCategory = (form) => (form.category === "Others" ? form.customC
 
 const ReportLostItem = () => {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
@@ -98,6 +97,7 @@ const ReportLostItem = () => {
   const [dragActive, setDragActive] = useState(false);
   const [aiDetected, setAiDetected] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -126,11 +126,7 @@ const ReportLostItem = () => {
       .filter((entry) => source.includes(entry.keyword))
       .map((entry) => entry.category);
 
-    const fromExistingItems = homeItems
-      .filter((item) => source.includes(item.name.toLowerCase().split(" ")[0]))
-      .map((item) => item.category);
-
-    return [...new Set([...fromKeywords, ...fromExistingItems])]
+    return [...new Set([...fromKeywords])]
       .map((category) => {
         if (["Accessories", "Personal"].includes(category)) return "Wallet";
         if (["Bags", "Bag"].includes(category)) return "Bag";
@@ -141,26 +137,6 @@ const ReportLostItem = () => {
       .filter((category, index, list) => list.indexOf(category) === index)
       .slice(0, 4);
   }, [form.itemName, form.description]);
-
-  const similarItems = useMemo(() => {
-    const name = form.itemName.toLowerCase();
-    const description = form.description.toLowerCase();
-
-    return homeItems
-      .filter((item) => item.status === "Found")
-      .filter((item) => {
-        if (form.category && item.category === form.category) {
-          return true;
-        }
-
-        if (!name && !description) {
-          return false;
-        }
-
-        return item.name.toLowerCase().includes(name) || description.includes(item.category.toLowerCase());
-      })
-      .slice(0, 3);
-  }, [form.category, form.itemName, form.description]);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -233,52 +209,54 @@ const ReportLostItem = () => {
     }
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
     if (!validateStep(1) || !validateStep(2) || !validateStep(4)) {
       return;
     }
 
-    const lostReport = {
-      itemName: form.itemName,
-      category: getResolvedCategory(form),
-      locationLost: form.locationLost,
-      dateLost: new Date().toISOString().slice(0, 10),
-      description: form.description,
-      identifiers: form.identifiers,
-      color: form.color,
-      hasImage: Boolean(uploadedFile),
-      notifyOnMatch: form.notifyOnMatch,
-    };
+    if (!profile?.id) {
+      setErrors((current) => ({ ...current, contactValue: current.contactValue || "You must be logged in." }));
+      return;
+    }
 
-    const topMatches = rankFoundMatches(lostReport, homeItems, 5);
-    const strongCount = topMatches.filter((entry) => entry.match.score >= 80).length;
+    setIsSubmitting(true);
 
-    localStorage.setItem("lforls:lastLostReport", JSON.stringify(lostReport));
-    createUserReport({
-      type: "Lost",
-      itemName: lostReport.itemName,
-      category: lostReport.category,
-      location: lostReport.locationLost,
-      image: uploadedFile ? imagePreview : "",
-      reportStatus: "Lost",
-      path: "/matches",
-      description: lostReport.description,
-    });
+    try {
+      const result = await submitItemReport({
+        reporterId: profile.id,
+        type: "lost",
+        payload: {
+          itemName: form.itemName,
+          category: getResolvedCategory(form),
+          customCategory: form.category === "Others" ? form.customCategory : "",
+          locationText: form.locationLost,
+          description: form.description,
+          color: form.color,
+          brand: form.brand,
+          identifiers: form.identifiers,
+          contactMethod: form.contactMethod,
+          contactValue: form.contactValue,
+          notifyOnMatch: form.notifyOnMatch,
+        },
+        file: uploadedFile,
+      });
 
-    createNotification({
-      type: "match",
-      priority: strongCount > 0 ? "high" : "normal",
-      title: "Possible match found for your lost item",
-      body:
-        strongCount > 0
-          ? `We found ${strongCount} strong match${strongCount > 1 ? "es" : ""}. Review them now.`
-          : `We found ${topMatches.length} possible matches. Review and verify details.`,
-      path: "/matches",
-    });
-
-    navigate("/matches", { state: { lostReport } });
+      navigate("/matches", {
+        state: {
+          reportId: result.item.id,
+          matchCount: result.matches.length,
+        },
+      });
+    } catch (error) {
+      setErrors((current) => ({
+        ...current,
+        contactValue: error?.message || "Unable to submit report.",
+      }));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (submitted) {
@@ -475,26 +453,11 @@ const ReportLostItem = () => {
               />
             </label>
 
-            {similarItems.length ? (
-              <div className="report-suggestions report-similar">
-                <p>
-                  <FontAwesomeIcon icon={faCircleInfo} /> Similar found items
-                </p>
-                <ul>
-                  {similarItems.map((item) => (
-                    <li key={item.id}>
-                      <img src={item.image} alt={item.name} />
-                      <div>
-                        <strong>{item.name}</strong>
-                        <span>
-                          {item.category} - {item.location}
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+            <div className="report-suggestions report-similar">
+              <p>
+                <FontAwesomeIcon icon={faCircleInfo} /> Matching suggestions will be generated from live database reports after submission.
+              </p>
+            </div>
           </section>
         ) : null}
 
@@ -638,7 +601,7 @@ const ReportLostItem = () => {
             </button>
           ) : (
             <button type="submit" className="report-primary-button">
-              <FontAwesomeIcon icon={faPaperPlane} /> Submit report
+              <FontAwesomeIcon icon={faPaperPlane} /> {isSubmitting ? "Submitting..." : "Submit report"}
             </button>
           )}
         </div>

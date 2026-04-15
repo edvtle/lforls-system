@@ -17,7 +17,7 @@ import {
   faUser,
 } from "@fortawesome/free-solid-svg-icons";
 import SelectDropdown from "../components/ui/SelectDropdown";
-import { clearAuthSession } from "../utils/authSession";
+import { useAuth } from "../context/AuthContext";
 import { deleteUserReportById, getUserReports, reportsUpdatedEventName, updateUserReportById } from "../utils/reportStore";
 import "../styles/Profile.css";
 
@@ -44,6 +44,7 @@ const getStoredThemeMode = () => {
 
 const Profile = () => {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
   const [activeSection, setActiveSection] = useState("account");
   const [reportFilter, setReportFilter] = useState("All");
   const [reports, setReports] = useState(() => getUserReports());
@@ -207,9 +208,12 @@ const Profile = () => {
     showSnackbar("Report deleted.");
   };
 
-  const handleLogout = () => {
-    clearAuthSession();
-    navigate("/", { replace: true });
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } finally {
+      navigate("/auth", { replace: true });
+    }
   };
 
   const renderReports = () => (

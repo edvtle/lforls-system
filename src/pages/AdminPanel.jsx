@@ -15,7 +15,7 @@ import {
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import AnimatedContent from "../components/AnimatedContent";
 import SearchBar from "../components/ui/SearchBar";
-import { clearAuthSession, getAuthSession } from "../utils/authSession";
+import { useAuth } from "../context/AuthContext";
 import { claimsUpdatedEventName, getClaims, updateClaimStatus as persistClaimStatus } from "../utils/claimStore";
 import "../styles/AdminPanel.css";
 
@@ -59,6 +59,7 @@ const barColors = ["#53c93e", "#67d74f", "#5fd44a", "#6ee25a", "#7ef067", "#67d7
 
 const AdminPanel = () => {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
   const [activeMenu, setActiveMenu] = useState("home");
   const [query, setQuery] = useState("");
   const [items, setItems] = useState(seedItems);
@@ -165,9 +166,12 @@ const AdminPanel = () => {
     showSnackbar(`Flag ${id} updated: ${status}.`);
   };
 
-  const handleLogout = () => {
-    clearAuthSession();
-    navigate("/auth", { replace: true });
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } finally {
+      navigate("/auth", { replace: true });
+    }
   };
 
   const renderDashboard = () => (
