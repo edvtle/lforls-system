@@ -26,7 +26,7 @@ const Auth = () => {
     isSupabaseConfigured,
   } = useAuth();
 
-  const [mode, setMode] = useState("signup");
+  const [mode, setMode] = useState("login");
   const [showPassword, setShowPassword] = useState(false);
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [signupData, setSignupData] = useState({ name: "", email: "", password: "" });

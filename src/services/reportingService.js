@@ -116,6 +116,37 @@ const computeScores = (left, right) => {
 const sanitizeFilename = (fileName = "file") =>
   fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
 
+const REPORT_FALLBACK_IMAGE =
+  "https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1200&q=80";
+
+const toProfileReportCard = (item) => {
+  const images = Array.isArray(item.item_images) ? item.item_images : [];
+  const primary = images.find((entry) => entry.is_primary) || images[0];
+
+  const reportStatus =
+    item.status === "claimed" || item.status === "resolved"
+      ? "Claimed"
+      : item.type === "found"
+        ? "Found"
+        : "Lost";
+
+  return {
+    id: item.id,
+    itemId: item.id,
+    source: "supabase",
+    reportType: item.type,
+    name: item.item_name || "Unnamed item",
+    category: item.category || "Others",
+    location: item.location_text || "Unknown",
+    image: primary?.public_url || REPORT_FALLBACK_IMAGE,
+    reportStatus,
+    matchPercent: Math.max(0, Math.min(100, Number(item.match_score || 0))),
+    path: "/matches",
+    description: item.description || "",
+    createdAt: item.created_at || new Date().toISOString(),
+  };
+};
+
 const assertSupabase = () => {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error("Supabase is not configured.");
@@ -319,4 +350,168 @@ export const submitItemReport = async ({ reporterId, type, payload, file }) => {
     uploadedImage,
     matches,
   };
+};
+
+export const listUserItemReports = async ({ reporterId, limit = 100 }) => {
+  assertSupabase();
+
+  const { data, error } = await supabase
+    .from("items")
+    .select(
+      "id, reporter_id, type, status, item_name, category, location_text, description, match_score, created_at, item_images(public_url, is_primary)",
+    )
+    .eq("reporter_id", reporterId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+
+  return (data || []).map(toProfileReportCard);
+};
+
+export const updateItemReport = async ({ reporterId, itemId, payload }) => {
+  assertSupabase();
+
+  const nextType =
+    payload.reportStatus === "Found"
+      ? "found"
+      : payload.reportStatus === "Lost"
+        ? "lost"
+        : null;
+
+  const nextStatus =
+    payload.reportStatus === "Claimed" ? "claimed" : payload.status || "open";
+
+  const updates = {
+    status: nextStatus,
+  };
+
+  if (typeof payload.name === "string") {
+    updates.item_name = payload.name.trim() || "Unnamed item";
+  }
+
+  if (typeof payload.location === "string") {
+    updates.location_text = payload.location.trim() || "Unknown";
+  }
+
+  if (nextType) {
+    updates.type = nextType;
+  }
+
+  const { data, error } = await supabase
+    .from("items")
+    .update(updates)
+    .eq("id", itemId)
+    .eq("reporter_id", reporterId)
+    .select(
+      "id, reporter_id, type, status, item_name, category, location_text, description, match_score, created_at, item_images(public_url, is_primary)",
+    )
+    .single();
+
+  if (error) throw error;
+
+  return toProfileReportCard(data);
+};
+
+export const deleteItemReport = async ({ reporterId, itemId }) => {
+  assertSupabase();
+
+  const { data: ownedItem, error: ownedItemError } = await supabase
+    .from("items")
+    .select("id")
+    .eq("id", itemId)
+    .eq("reporter_id", reporterId)
+    .maybeSingle();
+
+  if (ownedItemError) throw ownedItemError;
+  if (!ownedItem) {
+    throw new Error("Report not found or not owned by current user.");
+  }
+
+  const { data: images, error: imagesQueryError } = await supabase
+    .from("item_images")
+    .select("storage_path")
+    .eq("item_id", itemId);
+
+  if (imagesQueryError) throw imagesQueryError;
+
+  const storagePaths = (images || [])
+    .map((entry) => entry.storage_path)
+    .filter(Boolean);
+
+  if (storagePaths.length) {
+    const { error: storageError } = await supabase.storage
+      .from("item-images")
+      .remove(storagePaths);
+
+    if (storageError) throw storageError;
+  }
+
+  const { error: imageDeleteError } = await supabase
+    .from("item_images")
+    .delete()
+    .eq("item_id", itemId);
+
+  if (imageDeleteError) throw imageDeleteError;
+
+  const { error: matchesDeleteError } = await supabase
+    .from("matches")
+    .delete()
+    .or(`lost_item_id.eq.${itemId},found_item_id.eq.${itemId}`);
+
+  if (matchesDeleteError) throw matchesDeleteError;
+
+  const { error: itemDeleteError } = await supabase
+    .from("items")
+    .delete()
+    .eq("id", itemId)
+    .eq("reporter_id", reporterId);
+
+  if (itemDeleteError) throw itemDeleteError;
+};
+
+export const submitItemListingReport = async ({
+  reporterId,
+  itemId,
+  itemName,
+  reason,
+  details,
+  severity = "medium",
+}) => {
+  assertSupabase();
+
+  const safeReason = String(reason || "").trim();
+  const safeDetails = String(details || "").trim();
+
+  if (!safeReason || !safeDetails) {
+    throw new Error("Please provide both reason and report details.");
+  }
+
+  const target = itemName ? `Item ${itemName} (${itemId})` : `Item ${itemId}`;
+
+  const fullPayload = {
+    reason: safeReason,
+    target,
+    severity,
+    status: "open",
+    body: safeDetails,
+    user_id: reporterId || null,
+  };
+
+  const { error } = await supabase.from("reports").insert(fullPayload);
+
+  if (!error) {
+    return;
+  }
+
+  const { error: fallbackError } = await supabase.from("reports").insert({
+    reason: safeReason,
+    target,
+    severity,
+    status: "open",
+  });
+
+  if (fallbackError) {
+    throw fallbackError;
+  }
 };

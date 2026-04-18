@@ -18,6 +18,9 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import SelectDropdown from "../components/ui/SelectDropdown";
 import { useAuth } from "../context/AuthContext";
+import { updateProfileById } from "../services/authService";
+import { deleteItemReport, listUserItemReports, updateItemReport } from "../services/reportingService";
+import { isSupabaseConfigured } from "../services/supabaseClient";
 import { deleteUserReportById, getUserReports, reportsUpdatedEventName, updateUserReportById } from "../utils/reportStore";
 import "../styles/Profile.css";
 
@@ -42,21 +45,29 @@ const getStoredThemeMode = () => {
   return localStorage.getItem("lforls:themeMode") || "dark";
 };
 
+const toLocalReportCard = (report) => ({
+  ...report,
+  source: "local",
+  itemId: report.itemId || report.id,
+  reportType: report.reportStatus === "Found" ? "found" : "lost",
+});
+
 const Profile = () => {
   const navigate = useNavigate();
-  const { signOut } = useAuth();
+  const { signOut, session, profile: authProfile } = useAuth();
   const [activeSection, setActiveSection] = useState("account");
   const [reportFilter, setReportFilter] = useState("All");
-  const [reports, setReports] = useState(() => getUserReports());
+  const [reports, setReports] = useState([]);
   const [editingReportId, setEditingReportId] = useState("");
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
-  const [profile, setProfile] = useState({
+  const [accountProfile, setAccountProfile] = useState({
     name: "User Demo",
     email: "userdemo@example.com",
-    collegeDept: "College of Computing Studies",
-    programYear: "3rd Year",
+    collegeDept: "College of Computer Studies",
+    programYear: "3B",
+    program: "",
   });
-  const [draftProfile, setDraftProfile] = useState(profile);
+  const [draftProfile, setDraftProfile] = useState(accountProfile);
   const [settings, setSettings] = useState({
     matchAlerts: true,
     messageAlerts: true,
@@ -103,10 +114,68 @@ const Profile = () => {
   }, [snackbar.visible]);
 
   useEffect(() => {
-    const refreshReports = () => setReports(getUserReports());
+    const refreshReports = () => {
+      const localReports = getUserReports().map(toLocalReportCard);
+      setReports((current) => {
+        const supabaseReports = current.filter((entry) => entry.source === "supabase");
+        return [...supabaseReports, ...localReports];
+      });
+    };
+
     window.addEventListener(reportsUpdatedEventName, refreshReports);
+    refreshReports();
     return () => window.removeEventListener(reportsUpdatedEventName, refreshReports);
   }, []);
+
+  useEffect(() => {
+    if (!authProfile) {
+      return;
+    }
+
+    const next = {
+      name: authProfile.fullName || "User Demo",
+      email: authProfile.email || "userdemo@example.com",
+      collegeDept: authProfile.collegeDept || "College of Computer Studies",
+      programYear: authProfile.programYear || "3B",
+      program: authProfile.program || "",
+    };
+
+    setAccountProfile(next);
+    setDraftProfile(next);
+  }, [authProfile]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !session?.user?.id) {
+      return;
+    }
+
+    let mounted = true;
+
+    const loadReports = async () => {
+      try {
+        const supabaseReports = await listUserItemReports({ reporterId: session.user.id });
+        const localReports = getUserReports().map(toLocalReportCard);
+
+        if (!mounted) {
+          return;
+        }
+
+        setReports([...supabaseReports, ...localReports]);
+      } catch {
+        if (!mounted) {
+          return;
+        }
+
+        setReports(getUserReports().map(toLocalReportCard));
+      }
+    };
+
+    loadReports();
+
+    return () => {
+      mounted = false;
+    };
+  }, [session?.user?.id]);
 
   const showSnackbar = (message) => {
     setSnackbar({ visible: true, message });
@@ -189,29 +258,118 @@ const Profile = () => {
       .slice(0, 6);
   }, [reports]);
 
-  const saveProfile = () => {
+  const saveProfile = async () => {
     if (!draftProfile.name.trim() || !draftProfile.email.trim() || !draftProfile.collegeDept.trim() || !draftProfile.programYear.trim()) {
-      showSnackbar("Complete name, email, college dept, and program year.");
+      showSnackbar("Complete name, email, college dept, and year/section.");
       return;
     }
 
-    setProfile(draftProfile);
-    showSnackbar("Profile updated.");
+    if (!/^[1-9][A-Za-z]$/.test(draftProfile.programYear.trim())) {
+      showSnackbar("Year/Section must be in format like 3B.");
+      return;
+    }
+
+    try {
+      if (isSupabaseConfigured && session?.user?.id) {
+        await updateProfileById(session.user.id, {
+          fullName: draftProfile.name,
+          email: draftProfile.email,
+          collegeDept: draftProfile.collegeDept,
+          programYear: draftProfile.programYear,
+          program: draftProfile.program,
+        });
+      }
+
+      setAccountProfile(draftProfile);
+      showSnackbar("Profile updated.");
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to update profile.");
+    }
   };
 
-  const deleteReport = (id) => {
-    deleteUserReportById(id);
-    setReports((current) => current.filter((entry) => entry.id !== id));
-    if (editingReportId === id) {
-      setEditingReportId("");
+  const deleteReport = async (entry) => {
+    try {
+      if (entry.source === "supabase" && isSupabaseConfigured && session?.user?.id) {
+        await deleteItemReport({
+          reporterId: session.user.id,
+          itemId: entry.itemId || entry.id,
+        });
+      } else {
+        deleteUserReportById(entry.id);
+      }
+
+      setReports((current) => current.filter((item) => item.id !== entry.id));
+
+      if (editingReportId === entry.id) {
+        setEditingReportId("");
+      }
+
+      showSnackbar("Report deleted.");
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to delete report.");
     }
-    showSnackbar("Report deleted.");
+  };
+
+  const saveReportChanges = async (entry) => {
+    try {
+      if (entry.source === "supabase" && isSupabaseConfigured && session?.user?.id) {
+        const updated = await updateItemReport({
+          reporterId: session.user.id,
+          itemId: entry.itemId || entry.id,
+          payload: {
+            name: entry.name,
+            location: entry.location,
+            reportStatus: entry.reportStatus,
+            status: entry.reportType === "found" ? "open" : "open",
+          },
+        });
+
+        setReports((current) => current.map((item) => (item.id === entry.id ? updated : item)));
+      } else {
+        updateUserReportById(entry.id, entry);
+      }
+
+      setEditingReportId("");
+      showSnackbar("Report changes saved.");
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to save report changes.");
+    }
+  };
+
+  const deleteReportById = async (id) => {
+    const entry = reports.find((item) => item.id === id);
+    if (!entry) {
+      return;
+    }
+
+    await deleteReport(entry);
+  };
+
+  const setEntryReportStatus = (id, nextStatus) => {
+    setReports((current) =>
+      current.map((item) => {
+        if (item.id !== id) {
+          return item;
+        }
+
+        if (nextStatus === "Claimed") {
+          return { ...item, reportStatus: nextStatus };
+        }
+
+        return {
+          ...item,
+          reportStatus: nextStatus,
+          reportType: nextStatus === "Found" ? "found" : "lost",
+        };
+      }),
+    );
   };
 
   const handleLogout = async () => {
     try {
       await signOut();
     } finally {
+      setEditingReportId("");
       navigate("/auth", { replace: true });
     }
   };
@@ -266,11 +424,7 @@ const Profile = () => {
                     />
                     <SelectDropdown
                       value={entry.reportStatus}
-                      onChange={(value) =>
-                        setReports((current) =>
-                          current.map((item) => (item.id === entry.id ? { ...item, reportStatus: value } : item))
-                        )
-                      }
+                      onChange={(value) => setEntryReportStatus(entry.id, value)}
                       className="profile-edit-select"
                       options={["Lost", "Found", "Claimed"]}
                     />
@@ -288,9 +442,7 @@ const Profile = () => {
                     className="profile-inline-btn"
                     onClick={() => {
                       if (editingReportId === entry.id) {
-                        updateUserReportById(entry.id, entry);
-                        setEditingReportId("");
-                        showSnackbar("Report changes saved.");
+                        saveReportChanges(entry);
                       } else {
                         setEditingReportId(entry.id);
                       }
@@ -301,7 +453,7 @@ const Profile = () => {
                   <button
                     type="button"
                     className="profile-inline-btn profile-inline-btn-danger profile-inline-btn-icon-only"
-                    onClick={() => deleteReport(entry.id)}
+                    onClick={() => deleteReportById(entry.id)}
                     aria-label="Delete report"
                     title="Delete report"
                   >
@@ -349,19 +501,43 @@ const Profile = () => {
             </label>
             <label>
               College Dept
-              <input
-                type="text"
+              <SelectDropdown
                 value={draftProfile.collegeDept}
-                onChange={(event) => setDraftProfile((current) => ({ ...current, collegeDept: event.target.value }))}
+                onChange={(value) => setDraftProfile((current) => ({ ...current, collegeDept: value }))}
+                className="profile-settings-select"
+                options={[
+                  "College of Arts and Sciences",
+                  "College of Business Administration",
+                  "College of Nursing",
+                  "College of Engineering",
+                  "College of Education",
+                  "College of Computer Studies",
+                  "College of International Hospitality Management",
+                ]}
               />
             </label>
             <label>
-              Program Year
-              <SelectDropdown
+              Year/Section
+              <input
+                type="text"
                 value={draftProfile.programYear}
-                onChange={(value) => setDraftProfile((current) => ({ ...current, programYear: value }))}
-                className="profile-settings-select"
-                options={["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"]}
+                onChange={(event) =>
+                  setDraftProfile((current) => ({
+                    ...current,
+                    programYear: event.target.value.toUpperCase(),
+                  }))
+                }
+                placeholder="e.g., 3B"
+                maxLength={2}
+              />
+            </label>
+            <label>
+              Program
+              <input
+                type="text"
+                value={draftProfile.program}
+                onChange={(event) => setDraftProfile((current) => ({ ...current, program: event.target.value }))}
+                placeholder="e.g., Bachelor of Science in Computer Science"
               />
             </label>
           </div>
@@ -462,14 +638,14 @@ const Profile = () => {
   return (
     <section className={`profile-page profile-theme-${settings.themeMode}`}>
       <section className="page-card profile-header-card">
-        <div className="profile-avatar" aria-hidden="true">{profile.name.charAt(0)}</div>
+        <div className="profile-avatar" aria-hidden="true">{accountProfile.name.charAt(0)}</div>
 
         <div className="profile-header-copy">
           <p className="page-kicker">Account</p>
-          <h2 className="page-title">{profile.name}</h2>
+          <h2 className="page-title">{accountProfile.name}</h2>
           <p className="profile-header-email">
             <FontAwesomeIcon icon={faEnvelope} />
-            <span>{profile.email}</span>
+            <span>{accountProfile.email}</span>
           </p>
         </div>
 
@@ -480,7 +656,7 @@ const Profile = () => {
             </span>
             <div>
               <span>College Dept</span>
-              <strong>{profile.collegeDept}</strong>
+              <strong>{accountProfile.collegeDept}</strong>
             </div>
           </div>
 
@@ -489,8 +665,8 @@ const Profile = () => {
               <FontAwesomeIcon icon={faGraduationCap} />
             </span>
             <div>
-              <span>Program Year</span>
-              <strong>{profile.programYear}</strong>
+              <span>Year/Section</span>
+              <strong>{accountProfile.programYear}</strong>
             </div>
           </div>
         </div>

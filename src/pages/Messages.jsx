@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBan,
@@ -11,13 +12,14 @@ import Modal from "../components/Modal";
 import {
   getConversationMessages,
   getConversations,
+  messagesUpdatedEventName,
   markConversationRead,
-  sendAutoReply,
   sendMessage,
   updateConversationFlags,
 } from "../utils/messagingStore";
 import { createClaim } from "../utils/claimStore";
 import { createNotification } from "../utils/notificationStore";
+import { useAuth } from "../context/AuthContext";
 
 const formatTime = (isoDate) => {
   const date = new Date(isoDate);
@@ -28,10 +30,16 @@ const formatTime = (isoDate) => {
 };
 
 const Messages = () => {
-  const [conversations, setConversations] = useState(() => getConversations());
-  const [activeId, setActiveId] = useState(() => getConversations()[0]?.id || "");
+  const [searchParams] = useSearchParams();
+  const { profile } = useAuth();
+  const currentUserId = profile?.id || null;
+  const [conversations, setConversations] = useState([]);
+  const [activeId, setActiveId] = useState("");
   const [conversationQuery, setConversationQuery] = useState("");
   const [messageText, setMessageText] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [threadLoading, setThreadLoading] = useState(false);
   const [showVerification, setShowVerification] = useState(false);
   const [verification, setVerification] = useState({
     fullName: "",
@@ -45,18 +53,82 @@ const Messages = () => {
     setSnackbar({ visible: true, message });
   };
 
-  useEffect(() => {
-    const refresh = () => setConversations(getConversations());
-    window.addEventListener("lforls:messages-updated", refresh);
-    return () => window.removeEventListener("lforls:messages-updated", refresh);
-  }, []);
+  const refreshConversations = async () => {
+    if (!currentUserId) {
+      setConversations([]);
+      setActiveId("");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const nextConversations = await getConversations({ userId: currentUserId });
+      setConversations(nextConversations);
+      setActiveId((current) => {
+        if (current && nextConversations.some((entry) => entry.id === current)) {
+          return current;
+        }
+        return nextConversations[0]?.id || "";
+      });
+    } catch (error) {
+      setConversations([]);
+      showSnackbar(error?.message || "Unable to load conversations.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (activeId) {
-      markConversationRead(activeId);
-      setConversations(getConversations());
+    const requestedConversation = searchParams.get("conv");
+    if (!requestedConversation) {
+      return;
     }
-  }, [activeId]);
+
+    const exists = conversations.some((entry) => entry.id === requestedConversation);
+    if (exists) {
+      setActiveId(requestedConversation);
+    }
+  }, [searchParams, conversations]);
+
+  useEffect(() => {
+    setLoading(true);
+    refreshConversations();
+  }, [currentUserId]);
+
+  useEffect(() => {
+    const handleUpdated = () => {
+      refreshConversations();
+    };
+
+    window.addEventListener(messagesUpdatedEventName, handleUpdated);
+    return () => window.removeEventListener(messagesUpdatedEventName, handleUpdated);
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (!activeId || !currentUserId) {
+      setMessages([]);
+      return;
+    }
+
+    const loadThread = async () => {
+      setThreadLoading(true);
+      try {
+        await markConversationRead({ conversationId: activeId, userId: currentUserId });
+        const thread = await getConversationMessages({
+          conversationId: activeId,
+          currentUserId,
+        });
+        setMessages(thread);
+      } catch (error) {
+        setMessages([]);
+        showSnackbar(error?.message || "Unable to load messages.");
+      } finally {
+        setThreadLoading(false);
+      }
+    };
+
+    loadThread();
+  }, [activeId, currentUserId]);
 
   useEffect(() => {
     if (!snackbar.visible) {
@@ -72,24 +144,7 @@ const Messages = () => {
     [conversations, activeId]
   );
 
-  const messages = useMemo(
-    () => (activeConversation ? getConversationMessages(activeConversation.id) : []),
-    [activeConversation, conversations]
-  );
-
-  const conversationSummaries = useMemo(
-    () =>
-      conversations.map((entry) => {
-        const thread = getConversationMessages(entry.id);
-        const lastMessage = thread[thread.length - 1];
-        return {
-          ...entry,
-          preview: lastMessage?.text || "No messages yet",
-          previewTime: lastMessage?.time || entry.updatedAt,
-        };
-      }),
-    [conversations]
-  );
+  const conversationSummaries = useMemo(() => conversations, [conversations]);
 
   const filteredConversations = useMemo(() => {
     const query = conversationQuery.trim().toLowerCase();
@@ -102,7 +157,7 @@ const Messages = () => {
     );
   }, [conversationQuery, conversationSummaries]);
 
-  const submitMessage = () => {
+  const submitMessage = async () => {
     if (!activeConversation) {
       return;
     }
@@ -117,18 +172,31 @@ const Messages = () => {
       return;
     }
 
-    sendMessage(activeConversation.id, messageText, "me");
-    setMessageText("");
-    setConversations(getConversations());
-    showSnackbar("Message sent.");
+    if (!currentUserId) {
+      showSnackbar("You must be logged in to send messages.");
+      return;
+    }
 
-    setTimeout(() => {
-      sendAutoReply(activeConversation.id);
-      setConversations(getConversations());
-    }, 450);
+    try {
+      await sendMessage({
+        conversationId: activeConversation.id,
+        text: messageText,
+        senderId: currentUserId,
+      });
+      setMessageText("");
+      await refreshConversations();
+      const thread = await getConversationMessages({
+        conversationId: activeConversation.id,
+        currentUserId,
+      });
+      setMessages(thread);
+      showSnackbar("Message sent.");
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to send message.");
+    }
   };
 
-  const submitVerification = () => {
+  const submitVerification = async () => {
     if (!activeConversation) {
       return;
     }
@@ -144,7 +212,7 @@ const Messages = () => {
     }
 
     createClaim({
-      itemId: activeConversation.id,
+      itemId: activeConversation.itemId || activeConversation.id,
       item: activeConversation.context,
       fullName: verification.fullName,
       contact: verification.contact,
@@ -153,8 +221,24 @@ const Messages = () => {
       routeTo: "item-owner",
     });
 
-    const payload = `Claim request submitted. Details provided for ownership verification.`;
-    sendMessage(activeConversation.id, payload, "me");
+    const payload = "Claim request submitted. Details provided for ownership verification.";
+
+    if (!currentUserId) {
+      showSnackbar("You must be logged in to send claim details.");
+      return;
+    }
+
+    try {
+      await sendMessage({
+        conversationId: activeConversation.id,
+        text: payload,
+        senderId: currentUserId,
+      });
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to send verification message.");
+      return;
+    }
+
     setVerification({
       fullName: "",
       contact: "",
@@ -162,7 +246,7 @@ const Messages = () => {
       programYear: "",
     });
     setShowVerification(false);
-    setConversations(getConversations());
+    await refreshConversations();
 
     createNotification({
       type: "claim",
@@ -175,7 +259,7 @@ const Messages = () => {
     showSnackbar("Claim submitted. Waiting for approval.");
   };
 
-  const handleReportUser = () => {
+  const handleReportUser = async () => {
     if (!activeConversation) {
       return;
     }
@@ -185,27 +269,35 @@ const Messages = () => {
       return;
     }
 
-    updateConversationFlags(activeConversation.id, { reported: true });
-    createNotification({
-      type: "safety",
-      priority: "high",
-      title: "User reported",
-      body: "Your safety report was submitted to admin for review.",
-      path: "/messages",
-    });
-    setConversations(getConversations());
-    showSnackbar("Report sent to admin.");
+    try {
+      await updateConversationFlags(activeConversation.id, { reported: true });
+      createNotification({
+        type: "safety",
+        priority: "high",
+        title: "User reported",
+        body: "Your safety report was submitted to admin for review.",
+        path: "/messages",
+      });
+      await refreshConversations();
+      showSnackbar("Report sent to admin.");
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to report conversation.");
+    }
   };
 
-  const handleToggleBlock = () => {
+  const handleToggleBlock = async () => {
     if (!activeConversation) {
       return;
     }
 
     const nextBlocked = !activeConversation.blocked;
-    updateConversationFlags(activeConversation.id, { blocked: nextBlocked });
-    setConversations(getConversations());
-    showSnackbar(nextBlocked ? "Conversation blocked." : "Conversation unblocked.");
+    try {
+      await updateConversationFlags(activeConversation.id, { blocked: nextBlocked });
+      await refreshConversations();
+      showSnackbar(nextBlocked ? "Conversation blocked." : "Conversation unblocked.");
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to update conversation status.");
+    }
   };
 
   return (
@@ -232,6 +324,11 @@ const Messages = () => {
           </label>
 
           <ul className="messages-conversation-list">
+            {loading ? (
+              <li>
+                <p>Loading conversations...</p>
+              </li>
+            ) : null}
             {filteredConversations.map((entry) => (
               <li key={entry.id}>
                 <button
@@ -287,6 +384,7 @@ const Messages = () => {
               </button>
 
               <div className="messages-thread" role="log" aria-live="polite">
+                {threadLoading ? <p>Loading thread...</p> : null}
                 {messages.map((entry) => (
                   <div
                     key={entry.id}
@@ -322,7 +420,7 @@ const Messages = () => {
             </>
           ) : (
             <div className="messages-empty-state">
-              <p>No conversations yet.</p>
+              <p>{currentUserId ? "No conversations yet." : "Sign in to view your messages."}</p>
               <small>New secure chats will appear here when a match is created.</small>
             </div>
           )}

@@ -11,7 +11,8 @@ const normalizeProfile = (profile, fallbackEmail = "") => ({
   fullName: profile?.full_name || "",
   email: profile?.email || fallbackEmail,
   collegeDept: profile?.college_dept || "",
-  programYear: profile?.program_year || "",
+  programYear: profile?.year_section || "",
+  program: profile?.program || "",
   role: profile?.role || "user",
   status: profile?.status || "active",
   avatarUrl: profile?.avatar_url || "",
@@ -164,7 +165,7 @@ export const fetchProfileById = async (userId, fallbackEmail = "") => {
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, full_name, email, college_dept, program_year, role, status, avatar_url",
+      "id, full_name, email, college_dept, year_section, program, role, status, avatar_url",
     )
     .eq("id", userId)
     .single();
@@ -181,6 +182,31 @@ export const fetchProfileById = async (userId, fallbackEmail = "") => {
   }
 
   return normalizeProfile(data, fallbackEmail);
+};
+
+export const updateProfileById = async (userId, updates) => {
+  assertSupabase();
+
+  const payload = {
+    id: userId,
+    full_name: updates.fullName?.trim() || "",
+    email: updates.email?.trim() || "",
+    college_dept: updates.collegeDept?.trim() || "",
+    year_section: updates.programYear?.trim() || "",
+    program: updates.program?.trim() || "",
+  };
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .upsert(payload, { onConflict: "id" })
+    .select(
+      "id, full_name, email, college_dept, year_section, program, role, status, avatar_url",
+    )
+    .single();
+
+  if (error) throw error;
+
+  return normalizeProfile(data, payload.email);
 };
 
 export const onAuthStateChange = (callback) => {

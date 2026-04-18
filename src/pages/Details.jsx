@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowLeft,
@@ -10,17 +10,24 @@ import {
   faCircleCheck,
   faCommentDots,
   faFileCircleExclamation,
+  faIdBadge,
   faLocationDot,
   faMagnifyingGlassPlus,
+  faGraduationCap,
+  faBuildingUser,
   faTag,
   faShieldHalved,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import Modal from "../components/Modal";
 import { claimsUpdatedEventName, createClaim, getClaims, updateClaimStatus as persistClaimStatus } from "../utils/claimStore";
-import { getMarketplaceItems } from "../utils/itemStore";
+import { listRecentItems } from "../services/itemsService";
+import { submitItemListingReport } from "../services/reportingService";
 import { updateUserReportByItemId } from "../utils/reportStore";
 import { createNotification } from "../utils/notificationStore";
+import { useAuth } from "../context/AuthContext";
+import { createOrGetConversation, sendMessage } from "../utils/messagingStore";
+import { isItemSaved, toggleSavedItem } from "../utils/savedItemStore";
 
 const getStatusTone = (status) => status.toLowerCase();
 
@@ -109,27 +116,53 @@ const Icon = ({ type }) => {
 
 const Details = () => {
   const { itemId } = useParams();
+  const { session } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const marketplaceItems = getMarketplaceItems();
-  const item = marketplaceItems.find((entry) => entry.id === itemId);
+  const [item, setItem] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  if (!item) {
-    return (
-      <section className="page-card">
-        <p className="page-kicker">Details</p>
-        <h2 className="page-title">Item not found</h2>
-        <p className="page-description">The item you opened is no longer available.</p>
-        <Link to="/home" className="hero-button hero-button-lost inline-action-link">
-          Back to Home
-        </Link>
-      </section>
-    );
-  }
+  useEffect(() => {
+    let mounted = true;
 
-  const gallery = item.gallery?.length ? item.gallery : [item.image];
+    const loadItem = async () => {
+      try {
+        const items = await listRecentItems({ limit: 500 });
+        const foundItem = items.find(
+          (entry) => String(entry.id) === String(itemId),
+        );
+        if (mounted) {
+          setItem(foundItem || null);
+        }
+      } catch {
+        if (mounted) {
+          setItem(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadItem();
+    return () => {
+      mounted = false;
+    };
+  }, [itemId]);
+
+  const gallery = item?.gallery?.length
+    ? item.gallery
+    : item?.image
+      ? [item.image]
+      : [];
 
   const relatedItems = useMemo(() => {
-    return marketplaceItems
+    if (!item) {
+      return [];
+    }
+
+    return []
       .filter((entry) => entry.id !== item.id)
       .map((entry) => {
         const score = [
@@ -143,13 +176,14 @@ const Details = () => {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 4);
-  }, [item, marketplaceItems]);
+  }, [item]);
 
-  const [selectedImage, setSelectedImage] = useState(gallery[0]);
+  const [selectedImage, setSelectedImage] = useState(gallery[0] || "");
   const [activeModal, setActiveModal] = useState(null);
   const [saved, setSaved] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [fakeReported, setFakeReported] = useState(false);
+  const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState("");
   const [claimerModalOpen, setClaimerModalOpen] = useState(false);
   const [itemClaims, setItemClaims] = useState([]);
@@ -160,6 +194,9 @@ const Details = () => {
     collegeDept: "",
     programYear: "",
     details: "",
+    reportReason: "",
+    reportSeverity: "medium",
+    reportDetails: "",
   });
 
   const showSnackbar = (message) => {
@@ -174,10 +211,19 @@ const Details = () => {
   }, [snackbar.visible]);
 
   useEffect(() => {
-    setSelectedImage(gallery[0]);
+    setSelectedImage(gallery[0] || "");
     setActiveModal(null);
+    setLightboxZoomed(false);
     setSubmissionStatus("");
   }, [gallery, itemId]);
+
+  useEffect(() => {
+    if (!item?.id) {
+      return;
+    }
+
+    setSaved(isItemSaved(item.id));
+  }, [item?.id]);
 
   useEffect(() => {
     if (!activeModal) {
@@ -200,6 +246,11 @@ const Details = () => {
   }, [activeModal]);
 
   useEffect(() => {
+    if (!item?.id) {
+      setItemClaims([]);
+      return undefined;
+    }
+
     const refreshItemClaims = () => {
       const allClaims = getClaims();
       const claimsForCurrentItem = allClaims.filter((claim) => claim.itemId === item.id);
@@ -209,7 +260,7 @@ const Details = () => {
     refreshItemClaims();
     window.addEventListener(claimsUpdatedEventName, refreshItemClaims);
     return () => window.removeEventListener(claimsUpdatedEventName, refreshItemClaims);
-  }, [item.id]);
+  }, [item?.id]);
 
   const openModal = (type) => {
     setSubmissionStatus("");
@@ -243,10 +294,10 @@ const Details = () => {
   );
 
   useEffect(() => {
-    if (item.status === "Found") {
+    if (item?.status === "Found") {
       setClaimed(Boolean(approvedClaim));
     }
-  }, [approvedClaim, item.status]);
+  }, [approvedClaim, item?.status]);
 
   const handleFoundItemClaimedClick = () => {
     if (claimed) {
@@ -271,8 +322,12 @@ const Details = () => {
     showSnackbar("Item marked as claimed.");
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (!item) {
+      return;
+    }
 
     if (activeModal?.type === "claim") {
       createClaim({
@@ -297,6 +352,64 @@ const Details = () => {
       return;
     }
 
+    try {
+      if (activeModal?.type === "contact" || activeModal?.type === "notify") {
+        if (!currentUserId) {
+          setSubmissionStatus("Please sign in to contact the reporter.");
+          return;
+        }
+
+        const fallbackName = item.reporterName || "reporter";
+        const maskedIdentity = `${fallbackName.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 6) || "user"}_***`;
+        const conversationId = `conv-item-${item.id}`;
+
+        const conversation = await createOrGetConversation({
+          id: conversationId,
+          title: `${item.status === "Lost" ? "Finder" : "Owner"} - ${item.name}`,
+          context: item.name,
+          maskedIdentity,
+          itemId: item.id,
+          currentUserId,
+          otherUserId: item.reporterId,
+        });
+
+        const starterText = formState.details.trim()
+          || (activeModal?.type === "contact"
+            ? `Hello, I am contacting you about ${item.name}.`
+            : `Hello, I may have information about ${item.name}.`);
+
+        await sendMessage({
+          conversationId: conversation.id,
+          text: starterText,
+          senderId: currentUserId,
+        });
+        navigate(`/messages?conv=${encodeURIComponent(conversation.id)}`);
+        return;
+      }
+
+      if (activeModal?.type === "report") {
+        if (!currentUserId) {
+          setSubmissionStatus("Please sign in to submit a report.");
+          return;
+        }
+
+        await submitItemListingReport({
+          reporterId: currentUserId,
+          itemId: item.id,
+          itemName: item.name,
+          reason: formState.reportReason,
+          details: formState.reportDetails,
+          severity: formState.reportSeverity,
+        });
+
+        setSubmissionStatus("Report submitted. Thank you for helping keep listings accurate and safe.");
+        return;
+      }
+    } catch (error) {
+      setSubmissionStatus(error?.message || "Unable to process your request right now.");
+      return;
+    }
+
     setSubmissionStatus(
       activeModal?.type === "report"
         ? "Report sent. Review is queued and the listing remains hidden from direct contact."
@@ -304,7 +417,32 @@ const Details = () => {
     );
   };
 
+  if (loading) {
+    return (
+      <section className="page-card">
+        <p className="page-kicker">Details</p>
+        <h2 className="page-title">Loading item...</h2>
+        <p className="page-description">Fetching item information from database.</p>
+      </section>
+    );
+  }
+
+  if (!item) {
+    return (
+      <section className="page-card">
+        <p className="page-kicker">Details</p>
+        <h2 className="page-title">Item not found</h2>
+        <p className="page-description">The item you opened is no longer available.</p>
+        <Link to="/home" className="hero-button hero-button-lost inline-action-link">
+          Back to Home
+        </Link>
+      </section>
+    );
+  }
+
   const statusTone = getStatusTone(item.status);
+  const currentUserId = session?.user?.id || null;
+  const isReportedByCurrentUser = Boolean(currentUserId && item.reporterId && currentUserId === item.reporterId);
   const hasClaimRequest = item.status === "Found" && itemClaims.length > 0;
   const primaryActionLabel = item.status === "Lost" ? "This is my item" : hasClaimRequest ? "Claimed" : "Notify Owner";
   const secondaryActionLabel = item.status === "Lost" ? "Contact Finder" : "Not a match";
@@ -383,8 +521,9 @@ const Details = () => {
                 type="button"
                 className={`details-ghost-button ${saved ? "details-ghost-active" : ""}`}
                 onClick={() => {
-                  setSaved((current) => !current);
-                  showSnackbar(!saved ? "Item saved" : "Item removed from saved");
+                  const isNowSaved = toggleSavedItem(item.id);
+                  setSaved(isNowSaved);
+                  showSnackbar(isNowSaved ? "Item saved" : "Item removed from saved");
                 }}
                 title={saved ? "Saved item" : "Save item"}
               >
@@ -468,6 +607,55 @@ const Details = () => {
             </div>
           </dl>
 
+          <section className="details-section details-reporter-section">
+            <div className="details-reporter-card">
+              <div className="details-reporter-head">
+                <div className="details-reporter-title-wrap">
+                  <p className="page-kicker">Reporter Information</p>
+                  <h3>{item.reporterName || "Unknown reporter"}</h3>
+                  <p className="details-reporter-subtitle">
+                    Verified academic details shown for professional and secure coordination.
+                  </p>
+                </div>
+                <div className="details-reporter-verified" aria-label="Verified profile">
+                  <FontAwesomeIcon icon={faShieldHalved} />
+                  Verified
+                </div>
+              </div>
+
+              <dl className="details-reporter-grid">
+                <div className="details-reporter-row">
+                  <dt>
+                    <FontAwesomeIcon icon={faBuildingUser} />
+                    Department
+                  </dt>
+                  <dd>{item.reporterDepartment || "Not provided"}</dd>
+                </div>
+                <div className="details-reporter-row">
+                  <dt>
+                    <FontAwesomeIcon icon={faGraduationCap} />
+                    Program
+                  </dt>
+                  <dd>{item.reporterProgram || "Not provided"}</dd>
+                </div>
+                <div className="details-reporter-row">
+                  <dt>
+                    <FontAwesomeIcon icon={faIdBadge} />
+                    Yr/Sec
+                  </dt>
+                  <dd>{item.reporterYearSection || "Not provided"}</dd>
+                </div>
+                <div className="details-reporter-row">
+                  <dt>
+                    <FontAwesomeIcon icon={faShieldHalved} />
+                    Contact policy
+                  </dt>
+                  <dd>Protected in-app contact only</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+
           <section className="details-match-panel">
             <div className="details-match-head">
               <div>
@@ -524,36 +712,40 @@ const Details = () => {
             </dl>
           </section>
 
-          <div className="details-action-grid">
-            <button
-              type="button"
-              className={`details-action-button ${item.status === "Lost" ? "details-action-primary-lost" : "details-action-primary-found"}`}
-              onClick={() => {
-                if (item.status === "Found" && hasClaimRequest) {
-                  handleFoundItemClaimedClick();
-                  return;
+          {isReportedByCurrentUser ? (
+            <p className="details-flow-note">You reported this item. Contact and claim actions are hidden for your own report.</p>
+          ) : (
+            <div className="details-action-grid">
+              <button
+                type="button"
+                className={`details-action-button ${item.status === "Lost" ? "details-action-primary-lost" : "details-action-primary-found"}`}
+                onClick={() => {
+                  if (item.status === "Found" && hasClaimRequest) {
+                    handleFoundItemClaimedClick();
+                    return;
+                  }
+
+                  openModal(primaryActionType);
+                }}
+              >
+                <Icon type="check" />
+                {primaryActionLabel}
+              </button>
+
+              <button
+                type="button"
+                className="details-action-button details-action-secondary"
+                onClick={() =>
+                  secondaryActionType
+                    ? openModal(secondaryActionType)
+                    : setSubmissionStatus("Marked as not a match. The item stays in review for other users.")
                 }
-
-                openModal(primaryActionType);
-              }}
-            >
-              <Icon type="check" />
-              {primaryActionLabel}
-            </button>
-
-            <button
-              type="button"
-              className="details-action-button details-action-secondary"
-              onClick={() =>
-                secondaryActionType
-                  ? openModal(secondaryActionType)
-                  : setSubmissionStatus("Marked as not a match. The item stays in review for other users.")
-              }
-            >
-              <Icon type={secondaryActionIcon} />
-              {secondaryActionLabel}
-            </button>
-          </div>
+              >
+                <Icon type={secondaryActionIcon} />
+                {secondaryActionLabel}
+              </button>
+            </div>
+          )}
 
           {submissionStatus ? <p className="details-flow-note">{submissionStatus}</p> : null}
         </div>
@@ -585,15 +777,33 @@ const Details = () => {
 
       <Modal
         isOpen={activeModal?.type === "zoom"}
-        onClose={closeModal}
+        onClose={() => {
+          setLightboxZoomed(false);
+          closeModal();
+        }}
         ariaLabel="Zoomed item image"
         overlayClassName="details-lightbox"
         panelClassName="details-lightbox-panel"
       >
-        <button type="button" className="details-close-button" onClick={closeModal} aria-label="Close zoom view">
+        <button
+          type="button"
+          className="details-close-button"
+          onClick={() => {
+            setLightboxZoomed(false);
+            closeModal();
+          }}
+          aria-label="Close zoom view"
+        >
           <Icon type="close" />
         </button>
-        <img src={selectedImage} alt={item.name} className="details-lightbox-image" />
+        <button
+          type="button"
+          className={`details-lightbox-image-button ${lightboxZoomed ? "details-lightbox-image-button-zoomed" : ""}`}
+          onClick={() => setLightboxZoomed((current) => !current)}
+          aria-label="Toggle image zoom"
+        >
+          <img src={selectedImage} alt={item.name} className="details-lightbox-image" />
+        </button>
       </Modal>
 
       <Modal
@@ -673,6 +883,47 @@ const Details = () => {
                       />
                     </label>
                   </>
+                ) : activeModal?.type === "report" ? (
+                  <>
+                    <label className="details-form-field">
+                      <span>Report Reason</span>
+                      <select
+                        value={formState.reportReason}
+                        onChange={(event) => setFormState((current) => ({ ...current, reportReason: event.target.value }))}
+                        required
+                      >
+                        <option value="">Select reason</option>
+                        <option value="Misleading Item Details">Misleading item details</option>
+                        <option value="Possible Spam or Scam">Possible spam or scam</option>
+                        <option value="Duplicate or Reposted Item">Duplicate or reposted item</option>
+                        <option value="Wrong Category or Status">Wrong category or status</option>
+                        <option value="Other Safety Concern">Other safety concern</option>
+                      </select>
+                    </label>
+
+                    <label className="details-form-field">
+                      <span>Priority</span>
+                      <select
+                        value={formState.reportSeverity}
+                        onChange={(event) => setFormState((current) => ({ ...current, reportSeverity: event.target.value }))}
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </label>
+
+                    <label className="details-form-field">
+                      <span>Details</span>
+                      <textarea
+                        value={formState.reportDetails}
+                        onChange={(event) => setFormState((current) => ({ ...current, reportDetails: event.target.value }))}
+                        placeholder="Describe why this item should be reviewed and include useful context."
+                        rows={4}
+                        required
+                      />
+                    </label>
+                  </>
                 ) : (
                   <>
                     <div className="details-form-grid">
@@ -715,6 +966,8 @@ const Details = () => {
                 <p className="details-flow-note">
                   {activeModal?.type === "claim"
                     ? "This helps confirm you are the rightful owner before release."
+                    : activeModal?.type === "report"
+                      ? "Reports are reviewed by admin to keep the platform safe and trustworthy."
                     : "Full contact details stay hidden. The message is routed through the app and reviewed before any next step."}
                 </p>
 

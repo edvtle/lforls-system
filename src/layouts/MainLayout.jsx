@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { gsap } from "gsap";
 import Navbar from "../components/Navbar";
+import Modal from "../components/Modal";
+import { useAuth } from "../context/AuthContext";
 import "../styles/AppShell.css";
 
 const getStoredThemeMode = () => localStorage.getItem("lforls:themeMode") || "dark";
 
 const MainLayout = () => {
+  const navigate = useNavigate();
+  const { profile } = useAuth();
   const location = useLocation();
   const isHomeRoute = location.pathname === "/" || location.pathname === "/home";
   const [themeMode, setThemeMode] = useState(getStoredThemeMode());
+  const [showProfilePrompt, setShowProfilePrompt] = useState(false);
   const mainRef = useRef(null);
 
   useEffect(() => {
@@ -28,6 +33,21 @@ const MainLayout = () => {
       window.removeEventListener("lforls:theme-updated", applyTheme);
     };
   }, []);
+
+  useEffect(() => {
+    if (!profile?.id || profile?.role === "admin") {
+      return;
+    }
+
+    const promptKey = `lforls:profile-setup-prompted:${profile.id}`;
+    const hasPrompted = window.localStorage.getItem(promptKey) === "1";
+    const isIncomplete = !profile?.collegeDept?.trim() || !profile?.programYear?.trim();
+
+    if (isIncomplete && !hasPrompted) {
+      setShowProfilePrompt(true);
+      window.localStorage.setItem(promptKey, "1");
+    }
+  }, [profile]);
 
   useEffect(() => {
     const mainElement = mainRef.current;
@@ -70,6 +90,38 @@ const MainLayout = () => {
       <main ref={mainRef} className={`app-main ${isHomeRoute ? "app-main-home" : ""}`}>
         <Outlet />
       </main>
+
+      <Modal
+        isOpen={showProfilePrompt}
+        onClose={() => setShowProfilePrompt(false)}
+        ariaLabel="Complete profile"
+        overlayClassName="app-profile-prompt-backdrop"
+        panelClassName="app-profile-prompt-panel"
+      >
+        <h3>Complete Your Profile</h3>
+        <p>
+          Welcome. Please set up your profile details first so matching and reports are more accurate.
+        </p>
+        <div className="app-profile-prompt-actions">
+          <button
+            type="button"
+            className="app-profile-prompt-skip"
+            onClick={() => setShowProfilePrompt(false)}
+          >
+            Later
+          </button>
+          <button
+            type="button"
+            className="app-profile-prompt-go"
+            onClick={() => {
+              setShowProfilePrompt(false);
+              navigate("/profile");
+            }}
+          >
+            Edit Profile Now
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 };

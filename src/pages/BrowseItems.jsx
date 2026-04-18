@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTag, faLocationDot, faCircleQuestion, faCalendarDays } from "@fortawesome/free-solid-svg-icons";
+import { faTag, faLocationDot, faCircleQuestion, faCalendarDays, faBookmark } from "@fortawesome/free-solid-svg-icons";
 import SearchBar from "../components/ui/SearchBar";
 import SelectDropdown from "../components/ui/SelectDropdown";
-import { getMarketplaceItems } from "../utils/itemStore";
+import { listRecentItems } from "../services/itemsService";
+import { getSavedItemIds, savedItemsUpdatedEventName } from "../utils/savedItemStore";
 import "../styles/Browse.css";
 
 const categoryOptions = ["All", "Electronics", "IDs", "Bags", "Clothing", "Others"];
@@ -54,9 +55,50 @@ const BrowseItems = () => {
   const [confidence, setConfidence] = useState("All");
   const [sortBy, setSortBy] = useState("Newest");
   const [visibleCount, setVisibleCount] = useState(4);
+  const [savedOnly, setSavedOnly] = useState(false);
+  const [savedItemIds, setSavedItemIds] = useState(() => new Set(getSavedItemIds()));
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const items = getMarketplaceItems();
+  useEffect(() => {
+    const refreshSaved = () => setSavedItemIds(new Set(getSavedItemIds()));
+    window.addEventListener(savedItemsUpdatedEventName, refreshSaved);
+    return () => window.removeEventListener(savedItemsUpdatedEventName, refreshSaved);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadItems = async () => {
+      try {
+        const categoryParam = category === "All" ? "All Categories" : category;
+        const supabaseItems = await listRecentItems({ 
+          search: query,
+          category: categoryParam,
+          location: location || "All Locations",
+          date: date || "All Dates",
+          limit: 200 
+        });
+        if (mounted) {
+          setItems(supabaseItems);
+        }
+      } catch {
+        if (mounted) {
+          setItems([]);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadItems();
+    return () => {
+      mounted = false;
+    };
+  }, [query, category, location, date]);
 
   const enrichedItems = useMemo(
     () => items.map((item) => ({ ...item, browseCategory: inferCategory(item) })),
@@ -93,8 +135,9 @@ const BrowseItems = () => {
       const matchesDate = !date || item.date === date;
       const matchesStatus = status === "All" || item.status === status;
       const matchesConfidence = confidence === "All" || confidenceBucket(item.matchPercent) === confidence;
+      const matchesSaved = !savedOnly || savedItemIds.has(String(item.id));
 
-      return matchesQuery && matchesCategory && matchesLocation && matchesDate && matchesStatus && matchesConfidence;
+      return matchesQuery && matchesCategory && matchesLocation && matchesDate && matchesStatus && matchesConfidence && matchesSaved;
     });
 
     if (sortBy === "Newest") {
@@ -108,7 +151,7 @@ const BrowseItems = () => {
     }
 
     return result;
-  }, [enrichedItems, query, category, location, date, status, confidence, sortBy]);
+  }, [enrichedItems, query, category, location, date, status, confidence, sortBy, savedOnly, savedItemIds]);
 
   const visibleItems = filteredItems.slice(0, visibleCount);
   const hasMore = visibleItems.length < filteredItems.length;
@@ -120,6 +163,7 @@ const BrowseItems = () => {
     setDate("");
     setStatus("All");
     setConfidence("All");
+    setSavedOnly(false);
     setSortBy("Newest");
     setVisibleCount(4);
   };
@@ -223,6 +267,18 @@ const BrowseItems = () => {
             />
           </label>
 
+          <label className="browse-field browse-field-check">
+            <span>Saved</span>
+            <label className="browse-check-label">
+              <input
+                type="checkbox"
+                checked={savedOnly}
+                onChange={(event) => setSavedOnly(event.target.checked)}
+              />
+              Show bookmarked only
+            </label>
+          </label>
+
           <button type="button" className="browse-reset" onClick={resetFilters}>
             Reset Filters
           </button>
@@ -231,10 +287,18 @@ const BrowseItems = () => {
         <section className="browse-content page-card">
           <div className="browse-content-head">
             <h2>Browse Items</h2>
-            <p>{filteredItems.length} result{filteredItems.length === 1 ? "" : "s"}</p>
+            <p>
+              {filteredItems.length} result{filteredItems.length === 1 ? "" : "s"}
+              {savedOnly ? " • Saved filter on" : ""}
+            </p>
           </div>
 
-          {visibleItems.length === 0 ? (
+          {loading ? (
+            <div className="browse-empty">
+              <h3>Loading items...</h3>
+              <p>Fetching reports from database.</p>
+            </div>
+          ) : visibleItems.length === 0 ? (
             <div className="browse-empty">
               <h3>No items found</h3>
               <p>Try changing filters or report your item.</p>
@@ -247,6 +311,11 @@ const BrowseItems = () => {
                     <div className="browse-card-image-wrap">
                       <img src={item.image} alt={item.name} className="browse-card-image" />
                       <span className={`browse-status browse-status-${item.status.toLowerCase()}`}>{item.status}</span>
+                      {savedItemIds.has(String(item.id)) ? (
+                        <span className="browse-bookmarked-badge" aria-label="Bookmarked item">
+                          <FontAwesomeIcon icon={faBookmark} /> Saved
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="browse-card-body">
@@ -269,6 +338,7 @@ const BrowseItems = () => {
                         </span>
                         Match: {item.matchPercent}%
                       </p>
+                      <p className="browse-meta-line">Reported by: {item.reporterName || "Unknown reporter"}</p>
                     </div>
                   </Link>
                 ))}

@@ -33,8 +33,8 @@
     linear-gradient(160deg, rgba(7, 12, 8, 0.95), rgba(10, 16, 11, 0.97));
 }
 
-.details-page-header > div,
-.details-summary > div {
+.details-page-header>div,
+.details-summary>div {
   min-width: 0;
 }
 
@@ -246,7 +246,7 @@
   gap: 1rem;
 }
 
-.details-summary > div:first-child {
+.details-summary>div:first-child {
   flex: 1;
   min-width: 0;
 }
@@ -325,6 +325,93 @@
 .details-section {
   display: grid;
   gap: 0.65rem;
+}
+
+.details-reporter-grid {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.details-reporter-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(93, 214, 44, 0.16);
+  background:
+    linear-gradient(160deg, rgba(7, 12, 8, 0.94), rgba(10, 16, 11, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.details-reporter-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.details-reporter-title-wrap {
+  min-width: 0;
+}
+
+.details-reporter-title-wrap h3 {
+  margin: 0.12rem 0 0;
+  color: #f3fbef;
+  font-size: 1.08rem;
+  line-height: 1.15;
+}
+
+.details-reporter-subtitle {
+  margin: 0.32rem 0 0;
+  color: #bdd0b8;
+  line-height: 1.45;
+  font-size: 0.88rem;
+}
+
+.details-reporter-verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.38rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid rgba(93, 214, 44, 0.28);
+  background: rgba(93, 214, 44, 0.1);
+  color: #d8f7cc;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.details-reporter-grid dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #8ca486;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+
+.details-reporter-grid dd {
+  margin: 0.28rem 0 0;
+  color: #f1f8ed;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.details-reporter-row {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.72rem 0.84rem;
+  border-radius: 0.82rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .details-section h3 {
@@ -483,6 +570,7 @@
   }
 
   .details-meta-grid,
+  .details-reporter-grid,
   .details-additional-grid,
   .details-form-grid,
   .details-action-grid,
@@ -593,6 +681,7 @@
     opacity: 0;
     transform: translateX(-50%) translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
@@ -649,7 +738,7 @@
   font-size: 1rem;
 }
 
-.details-related-card p + p {
+.details-related-card p+p {
   margin-top: 0.1rem;
 }
 
@@ -689,6 +778,23 @@
   background: #070b08;
 }
 
+.details-lightbox-image-button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.details-lightbox-image-button-zoomed {
+  cursor: zoom-out;
+}
+
+.details-lightbox-image-button-zoomed .details-lightbox-image {
+  transform: scale(1.15);
+  transform-origin: center center;
+}
+
 .details-close-button {
   width: 2.35rem;
   height: 2.35rem;
@@ -722,6 +828,7 @@
 }
 
 .details-form-field input,
+.details-form-field select,
 .details-form-field textarea {
   width: 100%;
   border: 1px solid rgba(93, 214, 44, 0.2);
@@ -738,6 +845,7 @@
 }
 
 .details-form-field input:focus,
+.details-form-field select:focus,
 .details-form-field textarea:focus {
   border-color: rgba(110, 224, 65, 0.9);
   box-shadow: 0 0 0 3px rgba(93, 214, 44, 0.12);
@@ -778,6 +886,7 @@ html[data-theme="light"] .details-page,
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .details-page-header,
   .details-gallery,
   .details-copy,
@@ -851,6 +960,8 @@ html[data-theme="light"] .details-thumb,
 .app-shell.app-shell-light .details-thumb,
 html[data-theme="light"] .details-meta-grid div,
 .app-shell.app-shell-light .details-meta-grid div,
+html[data-theme="light"] .details-reporter-card,
+.app-shell.app-shell-light .details-reporter-card,
 html[data-theme="light"] .details-additional-grid div,
 .app-shell.app-shell-light .details-additional-grid div,
 html[data-theme="light"] .details-section,
@@ -876,6 +987,8 @@ html[data-theme="light"] .details-thumb,
 .app-shell.app-shell-light .details-thumb,
 html[data-theme="light"] .details-meta-grid div,
 .app-shell.app-shell-light .details-meta-grid div,
+html[data-theme="light"] .details-reporter-card,
+.app-shell.app-shell-light .details-reporter-card,
 html[data-theme="light"] .details-additional-grid div,
 .app-shell.app-shell-light .details-additional-grid div,
 html[data-theme="light"] .details-section,
@@ -897,6 +1010,8 @@ html[data-theme="light"] .details-meta-grid dt,
 .app-shell.app-shell-light .details-meta-grid dt,
 html[data-theme="light"] .details-additional-grid dt,
 .app-shell.app-shell-light .details-additional-grid dt,
+html[data-theme="light"] .details-reporter-grid dt,
+.app-shell.app-shell-light .details-reporter-grid dt,
 html[data-theme="light"] .details-form-field span,
 .app-shell.app-shell-light .details-form-field span,
 html[data-theme="light"] .details-similarity-chip span {
@@ -907,6 +1022,10 @@ html[data-theme="light"] .details-meta-grid dd,
 .app-shell.app-shell-light .details-meta-grid dd,
 html[data-theme="light"] .details-additional-grid dd,
 .app-shell.app-shell-light .details-additional-grid dd,
+html[data-theme="light"] .details-reporter-title-wrap h3,
+.app-shell.app-shell-light .details-reporter-title-wrap h3,
+html[data-theme="light"] .details-reporter-grid dd,
+.app-shell.app-shell-light .details-reporter-grid dd,
 html[data-theme="light"] .details-section h3,
 .app-shell.app-shell-light .details-section h3,
 html[data-theme="light"] .details-related-card h4,
@@ -930,6 +1049,8 @@ html[data-theme="light"] .details-match-copy,
 .app-shell.app-shell-light .details-match-copy,
 html[data-theme="light"] .details-flow-note,
 .app-shell.app-shell-light .details-flow-note,
+html[data-theme="light"] .details-reporter-subtitle,
+.app-shell.app-shell-light .details-reporter-subtitle,
 html[data-theme="light"] .details-related-meta,
 .app-shell.app-shell-light .details-related-meta,
 html[data-theme="light"] .details-related-card p,
@@ -937,6 +1058,24 @@ html[data-theme="light"] .details-related-card p,
 html[data-theme="light"] .details-modal-head p,
 .app-shell.app-shell-light .details-modal-head p {
   color: #4b4b4b;
+}
+
+html[data-theme="light"] .details-reporter-head,
+.app-shell.app-shell-light .details-reporter-head {
+  border-bottom-color: rgba(0, 0, 0, 0.12);
+}
+
+html[data-theme="light"] .details-reporter-row,
+.app-shell.app-shell-light .details-reporter-row {
+  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+html[data-theme="light"] .details-reporter-verified,
+.app-shell.app-shell-light .details-reporter-verified {
+  border-color: rgba(0, 0, 0, 0.14);
+  background: rgba(255, 255, 255, 0.94);
+  color: #1f3b1a;
 }
 
 html[data-theme="light"] .details-status-lost,
@@ -1044,6 +1183,10 @@ html[data-theme="light"] .details-thumb,
 .app-shell.app-shell-light .details-thumb,
 html[data-theme="light"] .details-meta-grid div,
 .app-shell.app-shell-light .details-meta-grid div,
+html[data-theme="light"] .details-reporter-grid div,
+.app-shell.app-shell-light .details-reporter-grid div,
+html[data-theme="light"] .details-reporter-card,
+.app-shell.app-shell-light .details-reporter-card,
 html[data-theme="light"] .details-additional-grid div,
 .app-shell.app-shell-light .details-additional-grid div,
 html[data-theme="light"] .details-section,
@@ -1220,4 +1363,21 @@ html[data-theme="light"] .details-ghost-button.details-ghost-active,
   border-color: rgba(0, 0, 0, 0.24);
   color: #111111;
   box-shadow: none;
+}
+
+html[data-theme="light"] .details-reporter-card,
+.app-shell.app-shell-light .details-reporter-card {
+  background:
+    radial-gradient(circle at top right, rgba(118, 217, 92, 0.14), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 244, 0.98));
+}
+
+html[data-theme="light"] .details-reporter-avatar,
+.app-shell.app-shell-light .details-reporter-avatar {
+  border-color: rgba(47, 143, 70, 0.18);
+  background:
+    radial-gradient(circle at 30% 30%, rgba(118, 217, 92, 0.28), transparent 55%),
+    linear-gradient(145deg, rgba(118, 217, 92, 0.42), rgba(47, 143, 70, 0.88));
+  color: #ffffff;
+  box-shadow: 0 12px 18px rgba(47, 143, 70, 0.14);
 }

@@ -8,12 +8,14 @@ import {
   faChevronRight,
   faCircleInfo,
   faCloudArrowUp,
+  faCrop,
   faLocationDot,
   faPaperPlane,
   faWandMagic,
   faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 import SelectDropdown from "../components/ui/SelectDropdown";
+import ImageCropModal from "../components/ImageCropModal";
 import { useAuth } from "../context/AuthContext";
 import { submitItemReport } from "../services/reportingService";
 
@@ -98,6 +100,8 @@ const ReportLostItem = () => {
   const [aiDetected, setAiDetected] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [cropFileName, setCropFileName] = useState("upload.jpg");
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -191,7 +195,14 @@ const ReportLostItem = () => {
     }
 
     setUploadedFile(file);
+    setCropFileName(file.name || "upload.jpg");
     setAiDetected(detectLikelyCategory(file.name, form.itemName));
+  };
+
+  const applyCroppedImage = (croppedFile) => {
+    setUploadedFile(croppedFile);
+    setAiDetected(detectLikelyCategory(croppedFile.name, form.itemName));
+    setCropModalOpen(false);
   };
 
   const handleDrop = (event) => {
@@ -204,6 +215,7 @@ const ReportLostItem = () => {
   const removeImage = () => {
     setUploadedFile(null);
     setAiDetected("");
+    setCropModalOpen(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -287,6 +299,7 @@ const ReportLostItem = () => {
   }
 
   return (
+    <>
     <section className="page-card report-lost-page">
       <div className="report-head">
         <div>
@@ -362,15 +375,12 @@ const ReportLostItem = () => {
               <span>Location lost</span>
               <div className="report-input-with-icon">
                 <FontAwesomeIcon icon={faLocationDot} aria-hidden="true" />
-                <SelectDropdown
+                <input
+                  type="text"
                   value={form.locationLost}
-                  onChange={(value) => updateField("locationLost", value)}
-                  className="report-select"
-                  wrapperClassName="report-select-wrap"
-                  options={[
-                    { value: "", label: "Select location" },
-                    ...locationOptions.map((option) => ({ value: option, label: option })),
-                  ]}
+                  onChange={(event) => updateField("locationLost", event.target.value)}
+                  placeholder="Describe where it was last seen..."
+                  className="report-text-input"
                 />
               </div>
               {errors.locationLost ? <em>{errors.locationLost}</em> : null}
@@ -500,6 +510,9 @@ const ReportLostItem = () => {
                     <button type="button" onClick={() => fileInputRef.current?.click()}>
                       <FontAwesomeIcon icon={faCamera} /> Replace
                     </button>
+                    <button type="button" onClick={() => setCropModalOpen(true)}>
+                      <FontAwesomeIcon icon={faCrop} /> Crop
+                    </button>
                     <button type="button" onClick={removeImage}>
                       <FontAwesomeIcon icon={faTrash} /> Remove
                     </button>
@@ -607,6 +620,17 @@ const ReportLostItem = () => {
         </div>
       </form>
     </section>
+
+      <ImageCropModal
+        isOpen={cropModalOpen}
+        imageSrc={imagePreview}
+        fileName={cropFileName}
+        onCancel={() => {
+          setCropModalOpen(false);
+        }}
+        onApply={applyCroppedImage}
+      />
+    </>
   );
 };
 

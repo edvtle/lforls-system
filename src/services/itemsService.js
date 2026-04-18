@@ -16,6 +16,16 @@ const toCardItem = (item) => {
     status: item.type === "found" ? "Found" : "Lost",
     matchPercent: Math.max(0, Math.min(100, Number(item.match_score || 0))),
     image: primary?.public_url || ITEM_FALLBACK_IMAGE,
+    description: item.description || "",
+    color: item.color || "",
+    brand: item.brand || "",
+    serialNumber: item.identifiers || "",
+    reporterId: item.reporter_id || null,
+    reporterName: item.reporterName || "Unknown reporter",
+    reporterEmail: item.reporterEmail || "",
+    reporterDepartment: item.reporterDepartment || "Not provided",
+    reporterProgram: item.reporterProgram || "Not provided",
+    reporterYearSection: item.reporterYearSection || "Not provided",
   };
 };
 
@@ -50,7 +60,7 @@ export const listRecentItems = async ({
   let query = supabase
     .from("items")
     .select(
-      "id, type, status, item_name, category, location_text, date_lost_or_found, match_score, created_at, item_images(public_url, is_primary)",
+      "id, reporter_id, type, status, item_name, category, description, color, brand, identifiers, location_text, date_lost_or_found, match_score, created_at, item_images(public_url, is_primary)",
     )
     .in("status", ["open", "matched", "claimed", "resolved"])
     .order("created_at", { ascending: false })
@@ -76,5 +86,42 @@ export const listRecentItems = async ({
     throw error;
   }
 
-  return (data || []).map(toCardItem);
+  const rows = data || [];
+  const reporterIds = [
+    ...new Set(rows.map((item) => item.reporter_id).filter(Boolean)),
+  ];
+  const reporterMap = new Map();
+
+  if (reporterIds.length) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, college_dept, program, year_section")
+      .in("id", reporterIds);
+
+    if (profilesError) {
+      throw profilesError;
+    }
+
+    (profiles || []).forEach((profile) => {
+      reporterMap.set(profile.id, {
+        name: profile.full_name || "Unknown reporter",
+        email: profile.email || "",
+        department: profile.college_dept || "Not provided",
+        program: profile.program || "Not provided",
+        yearSection: profile.year_section || "Not provided",
+      });
+    });
+  }
+
+  return rows.map((item) => {
+    const reporter = reporterMap.get(item.reporter_id);
+    return toCardItem({
+      ...item,
+      reporterName: reporter?.name || "Unknown reporter",
+      reporterEmail: reporter?.email || "",
+      reporterDepartment: reporter?.department || "Not provided",
+      reporterProgram: reporter?.program || "Not provided",
+      reporterYearSection: reporter?.yearSection || "Not provided",
+    });
+  });
 };

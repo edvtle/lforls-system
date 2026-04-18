@@ -258,6 +258,59 @@ html[data-theme="light"] .app-icon-link:hover,
   border-color: rgba(46, 111, 21, 0.5);
 }
 
+.app-profile-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.62);
+  padding: 1rem;
+}
+
+.app-profile-prompt-panel {
+  width: min(30rem, 100%);
+  border: 1px solid rgba(93, 214, 44, 0.3);
+  border-radius: 1rem;
+  background: rgba(8, 14, 9, 0.96);
+  color: #e8f7e0;
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.app-profile-prompt-panel h3,
+.app-profile-prompt-panel p {
+  margin: 0;
+}
+
+.app-profile-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.app-profile-prompt-skip,
+.app-profile-prompt-go {
+  border-radius: 0.7rem;
+  min-height: 2.3rem;
+  padding: 0.45rem 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.app-profile-prompt-skip {
+  border: 1px solid rgba(93, 214, 44, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dff3d7;
+}
+
+.app-profile-prompt-go {
+  border: 1px solid rgba(93, 214, 44, 0.5);
+  background: linear-gradient(145deg, #8fe761, #68cd45);
+  color: #032104;
+}
+
 html[data-theme="light"] .app-icon-link.app-link-active,
 .app-shell.app-shell-light .app-icon-link.app-link-active {
   color: #ffffff;
@@ -901,7 +954,7 @@ html[data-theme="light"] .match-card-action,
   gap: 0.65rem;
 }
 
-.match-query-grid > div {
+.match-query-grid>div {
   padding: 0.8rem 0.9rem;
   border-radius: 0.9rem;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1218,7 +1271,7 @@ html[data-theme="light"] .match-card-action,
   gap: 0.5rem;
 }
 
-.report-field > span {
+.report-field>span {
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -1331,7 +1384,7 @@ html[data-theme="light"] .match-card-action,
   font-size: 0.84rem;
 }
 
-.report-suggestions > div {
+.report-suggestions>div {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -1477,7 +1530,7 @@ html[data-theme="light"] .match-card-action,
   gap: 0.65rem;
 }
 
-.report-review-grid > div {
+.report-review-grid>div {
   display: grid;
   gap: 0.3rem;
   padding: 0.75rem 0.85rem;
@@ -1584,8 +1637,8 @@ html[data-theme="light"] .match-card-action,
   gap: 1rem;
 }
 
-.details-page-header > div,
-.details-summary > div {
+.details-page-header>div,
+.details-summary>div {
   min-width: 0;
 }
 
@@ -1788,7 +1841,7 @@ html[data-theme="light"] .match-card-action,
   gap: 1rem;
 }
 
-.details-summary > div:first-child {
+.details-summary>div:first-child {
   flex: 1;
   min-width: 0;
 }
@@ -2062,6 +2115,7 @@ html[data-theme="light"] .match-card-action,
     opacity: 0;
     transform: translateX(-50%) translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
@@ -2106,7 +2160,7 @@ html[data-theme="light"] .match-card-action,
   font-size: 1rem;
 }
 
-.details-related-card p + p {
+.details-related-card p+p {
   margin-top: 0.1rem;
 }
 
@@ -3033,8 +3087,8 @@ html[data-theme="light"] .report-step-card p,
 .app-shell.app-shell-light .report-step-card p,
 html[data-theme="light"] .report-progress-chip span,
 .app-shell.app-shell-light .report-progress-chip span,
-html[data-theme="light"] .report-field > span,
-.app-shell.app-shell-light .report-field > span {
+html[data-theme="light"] .report-field>span,
+.app-shell.app-shell-light .report-field>span {
   color: #4b4b4b;
 }
 
@@ -3163,8 +3217,8 @@ html[data-theme="light"] .report-ai-note,
 .app-shell.app-shell-light .report-ai-note,
 html[data-theme="light"] .report-suggestions,
 .app-shell.app-shell-light .report-suggestions,
-html[data-theme="light"] .report-review-grid > div,
-.app-shell.app-shell-light .report-review-grid > div {
+html[data-theme="light"] .report-review-grid>div,
+.app-shell.app-shell-light .report-review-grid>div {
   border-color: rgba(0, 0, 0, 0.12);
   background: rgba(255, 255, 255, 0.86);
 }
@@ -3219,8 +3273,8 @@ html[data-theme="light"] .report-field textarea::placeholder,
   color: #707070;
 }
 
-html[data-theme="light"] .report-field > span,
-.app-shell.app-shell-light .report-field > span,
+html[data-theme="light"] .report-field>span,
+.app-shell.app-shell-light .report-field>span,
 html[data-theme="light"] .report-step-card h3,
 .app-shell.app-shell-light .report-step-card h3,
 html[data-theme="light"] .report-step-card p,
@@ -3446,7 +3500,7 @@ html[data-theme="light"] .report-upload-zone,
     justify-content: center;
   }
 
-  .profile-report-grid > .profile-report-card {
+  .profile-report-grid>.profile-report-card {
     max-width: 24rem;
   }
 
@@ -3528,4 +3582,3 @@ html[data-theme="light"] .report-upload-zone,
     right: -0.3rem;
   }
 }
-

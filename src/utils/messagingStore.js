@@ -1,163 +1,332 @@
-import { createNotification } from "./notificationStore";
+import { supabase, isSupabaseConfigured } from "../services/supabaseClient";
 
-const CONVERSATIONS_KEY = "lforls:conversations";
-const MESSAGES_KEY = "lforls:messages";
+const MESSAGES_UPDATED_EVENT = "lforls:messages-updated";
 
-const defaultConversations = [
-  {
-    id: "conv-wallet-001",
-    title: "Finder - Wallet Case",
-    context: "Black Leather Wallet",
-    maskedIdentity: "finder_2***",
-    unreadCount: 1,
-    blocked: false,
-    reported: false,
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: "conv-keys-008",
-    title: "Lost Owner - Keys",
-    context: "Room Keys Set",
-    maskedIdentity: "owner_7***",
-    unreadCount: 0,
-    blocked: false,
-    reported: false,
-    updatedAt: new Date(Date.now() - 1000 * 60 * 28).toISOString(),
-  },
-];
-
-const defaultMessages = {
-  "conv-wallet-001": [
-    {
-      id: "m1",
-      sender: "other",
-      text: "I found a wallet near the library entrance. Can you describe one unique mark?",
-      time: new Date(Date.now() - 1000 * 60 * 14).toISOString(),
-    },
-  ],
-  "conv-keys-008": [
-    {
-      id: "m2",
-      sender: "me",
-      text: "Can you confirm if the key tag is green?",
-      time: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    },
-    {
-      id: "m3",
-      sender: "other",
-      text: "Yes, green tag and three keys.",
-      time: new Date(Date.now() - 1000 * 60 * 28).toISOString(),
-    },
-  ],
+const notifyUpdated = () => {
+  window.dispatchEvent(new Event(MESSAGES_UPDATED_EVENT));
 };
 
-const parse = (key, fallback) => {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || "null");
-    return value || fallback;
-  } catch {
-    return fallback;
+const assertSupabase = () => {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error("Supabase is not configured.");
   }
 };
 
-const save = (key, value) => {
-  localStorage.setItem(key, JSON.stringify(value));
-  window.dispatchEvent(new Event("lforls:messages-updated"));
-};
+const toConversationCard = (row) => ({
+  id: row.id,
+  itemId: row.item_id || null,
+  title: row.title || "Secure conversation",
+  context: row.context || "Item discussion",
+  maskedIdentity: row.masked_identity || "user_***",
+  unreadCount: Number(row.unread_count || 0),
+  blocked: Boolean(row.blocked),
+  reported: Boolean(row.reported),
+  updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
+  preview: row.preview || "No messages yet",
+  previewTime: row.preview_time || row.updated_at || new Date().toISOString(),
+});
 
-const ensureSeed = () => {
-  const existingConversations = parse(CONVERSATIONS_KEY, null);
-  const existingMessages = parse(MESSAGES_KEY, null);
+export const messagesUpdatedEventName = MESSAGES_UPDATED_EVENT;
 
-  if (!existingConversations) {
-    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(defaultConversations));
+export const getConversations = async ({ userId }) => {
+  assertSupabase();
+  if (!userId) {
+    return [];
   }
 
-  if (!existingMessages) {
-    localStorage.setItem(MESSAGES_KEY, JSON.stringify(defaultMessages));
+  const { data: participants, error: participantError } = await supabase
+    .from("message_participants")
+    .select(
+      "unread_count, message_conversations(id, item_id, title, context, masked_identity, blocked, reported, updated_at, created_at)",
+    )
+    .eq("user_id", userId);
+
+  if (participantError) {
+    throw participantError;
   }
+
+  const baseRows = (participants || [])
+    .map((entry) => {
+      const conversation = entry.message_conversations;
+      if (!conversation) {
+        return null;
+      }
+
+      return {
+        ...conversation,
+        unread_count: entry.unread_count,
+      };
+    })
+    .filter(Boolean);
+
+  if (!baseRows.length) {
+    return [];
+  }
+
+  const conversationIds = baseRows.map((entry) => entry.id);
+  const { data: latestMessages, error: messageError } = await supabase
+    .from("message_messages")
+    .select("conversation_id, body, created_at")
+    .in("conversation_id", conversationIds)
+    .order("created_at", { ascending: false });
+
+  if (messageError) {
+    throw messageError;
+  }
+
+  const previewMap = new Map();
+  (latestMessages || []).forEach((entry) => {
+    if (!previewMap.has(entry.conversation_id)) {
+      previewMap.set(entry.conversation_id, {
+        preview: entry.body || "No messages yet",
+        preview_time: entry.created_at,
+      });
+    }
+  });
+
+  return baseRows
+    .map((entry) =>
+      toConversationCard({ ...entry, ...(previewMap.get(entry.id) || {}) }),
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.updatedAt).getTime() -
+        new Date(left.updatedAt).getTime(),
+    );
 };
 
-export const getConversations = () => {
-  ensureSeed();
-  return parse(CONVERSATIONS_KEY, defaultConversations).sort(
-    (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-  );
+export const getConversationMessages = async ({
+  conversationId,
+  currentUserId,
+}) => {
+  assertSupabase();
+  if (!conversationId) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("message_messages")
+    .select("id, sender_id, body, created_at")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data || []).map((entry) => ({
+    id: entry.id,
+    sender: entry.sender_id === currentUserId ? "me" : "other",
+    text: entry.body || "",
+    time: entry.created_at || new Date().toISOString(),
+  }));
 };
 
-export const getConversationMessages = (conversationId) => {
-  ensureSeed();
-  const messagesByConversation = parse(MESSAGES_KEY, defaultMessages);
-  return messagesByConversation[conversationId] || [];
-};
-
-export const markConversationRead = (conversationId) => {
-  const next = getConversations().map((entry) =>
-    entry.id === conversationId ? { ...entry, unreadCount: 0 } : entry
-  );
-  save(CONVERSATIONS_KEY, next);
-};
-
-export const updateConversationFlags = (conversationId, patch) => {
-  const next = getConversations().map((entry) =>
-    entry.id === conversationId ? { ...entry, ...patch } : entry
-  );
-  save(CONVERSATIONS_KEY, next);
-};
-
-export const sendMessage = (conversationId, text, sender = "me") => {
-  const trimmed = text.trim();
-  if (!trimmed) {
+export const markConversationRead = async ({ conversationId, userId }) => {
+  assertSupabase();
+  if (!conversationId || !userId) {
     return;
   }
 
-  const allMessages = parse(MESSAGES_KEY, defaultMessages);
-  const current = allMessages[conversationId] || [];
+  const { error } = await supabase
+    .from("message_participants")
+    .update({ unread_count: 0, last_read_at: new Date().toISOString() })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId);
 
-  const message = {
-    id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-    sender,
-    text: trimmed,
-    time: new Date().toISOString(),
-  };
-
-  const nextMessages = {
-    ...allMessages,
-    [conversationId]: [...current, message],
-  };
-
-  save(MESSAGES_KEY, nextMessages);
-
-  const nextConversations = getConversations().map((entry) =>
-    entry.id === conversationId
-      ? {
-          ...entry,
-          updatedAt: message.time,
-          unreadCount: sender === "other" ? entry.unreadCount + 1 : entry.unreadCount,
-        }
-      : entry
-  );
-
-  save(CONVERSATIONS_KEY, nextConversations);
-
-  if (sender === "other") {
-    createNotification({
-      type: "message",
-      title: `New message from ${nextConversations.find((entry) => entry.id === conversationId)?.maskedIdentity || "user"}`,
-      body: trimmed.length > 68 ? `${trimmed.slice(0, 68)}...` : trimmed,
-      priority: "normal",
-      path: "/messages",
-    });
+  if (error) {
+    throw error;
   }
+
+  notifyUpdated();
 };
 
-export const sendAutoReply = (conversationId) => {
-  const replies = [
-    "Thanks. Please share one unique identifier so we can verify ownership.",
-    "Received. I can continue through this in-app chat for safety.",
-    "Can you confirm a detail only the owner would know?",
-  ];
+export const updateConversationFlags = async (conversationId, patch = {}) => {
+  assertSupabase();
+  if (!conversationId) {
+    return;
+  }
 
-  const reply = replies[Math.floor(Math.random() * replies.length)];
-  sendMessage(conversationId, reply, "other");
+  const updates = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (typeof patch.blocked === "boolean") {
+    updates.blocked = patch.blocked;
+  }
+
+  if (typeof patch.reported === "boolean") {
+    updates.reported = patch.reported;
+  }
+
+  if (typeof patch.title === "string") {
+    updates.title = patch.title;
+  }
+
+  if (typeof patch.context === "string") {
+    updates.context = patch.context;
+  }
+
+  if (typeof patch.maskedIdentity === "string") {
+    updates.masked_identity = patch.maskedIdentity;
+  }
+
+  const { error } = await supabase
+    .from("message_conversations")
+    .update(updates)
+    .eq("id", conversationId);
+
+  if (error) {
+    throw error;
+  }
+
+  notifyUpdated();
+};
+
+export const createOrGetConversation = async ({
+  id,
+  title,
+  context,
+  maskedIdentity,
+  itemId,
+  currentUserId,
+  otherUserId,
+}) => {
+  assertSupabase();
+
+  const conversationId =
+    id || `conv-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+  const { data: existingConversation, error: existingError } = await supabase
+    .from("message_conversations")
+    .select(
+      "id, item_id, title, context, masked_identity, blocked, reported, updated_at, created_at",
+    )
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw existingError;
+  }
+
+  if (!existingConversation) {
+    const { error: insertError } = await supabase
+      .from("message_conversations")
+      .insert({
+        id: conversationId,
+        item_id: itemId || null,
+        title: title || "Secure conversation",
+        context: context || "Item discussion",
+        masked_identity: maskedIdentity || "user_***",
+        created_by: currentUserId || null,
+        blocked: false,
+        reported: false,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (insertError) {
+      throw insertError;
+    }
+  }
+
+  const participants = [currentUserId, otherUserId]
+    .filter(Boolean)
+    .filter((value, index, list) => list.indexOf(value) === index)
+    .map((userId) => ({
+      conversation_id: conversationId,
+      user_id: userId,
+      unread_count: 0,
+      last_read_at: new Date().toISOString(),
+    }));
+
+  if (participants.length) {
+    const { error: participantError } = await supabase
+      .from("message_participants")
+      .upsert(participants, { onConflict: "conversation_id,user_id" });
+
+    if (participantError) {
+      throw participantError;
+    }
+  }
+
+  notifyUpdated();
+
+  return toConversationCard({
+    ...(existingConversation || {
+      id: conversationId,
+      item_id: itemId || null,
+      title,
+      context,
+      masked_identity: maskedIdentity,
+      blocked: false,
+      reported: false,
+      updated_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    }),
+    unread_count: 0,
+  });
+};
+
+export const sendMessage = async ({ conversationId, text, senderId }) => {
+  assertSupabase();
+
+  const trimmed = String(text || "").trim();
+  if (!conversationId || !senderId || !trimmed) {
+    return;
+  }
+
+  const timestamp = new Date().toISOString();
+
+  const { error: insertError } = await supabase
+    .from("message_messages")
+    .insert({
+      conversation_id: conversationId,
+      sender_id: senderId,
+      body: trimmed,
+      created_at: timestamp,
+    });
+
+  if (insertError) {
+    throw insertError;
+  }
+
+  const { error: updateConversationError } = await supabase
+    .from("message_conversations")
+    .update({ updated_at: timestamp })
+    .eq("id", conversationId);
+
+  if (updateConversationError) {
+    throw updateConversationError;
+  }
+
+  const { data: participants, error: participantQueryError } = await supabase
+    .from("message_participants")
+    .select("conversation_id, user_id, unread_count")
+    .eq("conversation_id", conversationId);
+
+  if (participantQueryError) {
+    throw participantQueryError;
+  }
+
+  const targetRows = (participants || []).filter(
+    (entry) => entry.user_id !== senderId,
+  );
+
+  if (targetRows.length) {
+    const updates = targetRows.map((entry) =>
+      supabase
+        .from("message_participants")
+        .update({ unread_count: Number(entry.unread_count || 0) + 1 })
+        .eq("conversation_id", entry.conversation_id)
+        .eq("user_id", entry.user_id),
+    );
+
+    await Promise.all(updates);
+  }
+
+  notifyUpdated();
+};
+
+export const sendAutoReply = async () => {
+  return null;
 };

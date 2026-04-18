@@ -137,6 +137,24 @@
   justify-items: start;
 }
 
+.browse-field-check {
+  align-items: start;
+}
+
+.browse-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #d7e8d2;
+  font-size: 0.84rem;
+}
+
+.browse-check-label input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #5dd62c;
+}
+
 .browse-field span {
   font-size: 0.74rem;
   letter-spacing: 0.05em;
@@ -303,6 +321,22 @@
 .browse-status-found {
   background: rgba(78, 204, 58, 0.9);
   color: #051106;
+}
+
+.browse-bookmarked-badge {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.52rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  border: 1px solid rgba(93, 214, 44, 0.5);
+  background: rgba(7, 12, 8, 0.86);
+  color: #dff3d8;
 }
 
 .browse-card-body {
