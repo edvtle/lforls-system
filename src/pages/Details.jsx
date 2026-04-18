@@ -216,6 +216,7 @@ const Details = () => {
     reportReason: "",
     reportSeverity: "medium",
     reportDetails: "",
+    reportOtherReason: "",
   });
 
   const showSnackbar = (message) => {
@@ -412,11 +413,13 @@ const Details = () => {
           return;
         }
 
+        const reportReason = formState.reportReason === "Others" ? formState.reportOtherReason : formState.reportReason;
+
         await submitItemListingReport({
           reporterId: currentUserId,
           itemId: item.id,
           itemName: item.name,
-          reason: formState.reportReason,
+          reason: reportReason,
           details: formState.reportDetails,
           severity: formState.reportSeverity,
         });
@@ -898,21 +901,36 @@ const Details = () => {
                   </>
                 ) : activeModal?.type === "report" ? (
                   <>
-                    <label className="details-form-field">
-                      <span>Report Reason</span>
-                      <select
-                        value={formState.reportReason}
-                        onChange={(event) => setFormState((current) => ({ ...current, reportReason: event.target.value }))}
-                        required
-                      >
-                        <option value="">Select reason</option>
-                        <option value="Misleading Item Details">Misleading item details</option>
-                        <option value="Possible Spam or Scam">Possible spam or scam</option>
-                        <option value="Duplicate or Reposted Item">Duplicate or reposted item</option>
-                        <option value="Wrong Category or Status">Wrong category or status</option>
-                        <option value="Other Safety Concern">Other safety concern</option>
-                      </select>
-                    </label>
+                    <div className={`details-form-grid ${formState.reportReason === "Others" ? "details-form-grid-2col" : ""}`}>
+                      <label className="details-form-field">
+                        <span>Report Reason</span>
+                        <select
+                          value={formState.reportReason}
+                          onChange={(event) => setFormState((current) => ({ ...current, reportReason: event.target.value }))}
+                          required
+                        >
+                          <option value="">Select reason</option>
+                          <option value="Misleading Item Details">Misleading item details</option>
+                          <option value="Possible Spam or Scam">Possible spam or scam</option>
+                          <option value="Duplicate or Reposted Item">Duplicate or reposted item</option>
+                          <option value="Wrong Category or Status">Wrong category or status</option>
+                          <option value="Others">Others</option>
+                        </select>
+                      </label>
+
+                      {formState.reportReason === "Others" && (
+                        <label className="details-form-field">
+                          <span>Specify reason</span>
+                          <input
+                            type="text"
+                            value={formState.reportOtherReason}
+                            onChange={(event) => setFormState((current) => ({ ...current, reportOtherReason: event.target.value }))}
+                            placeholder="Please describe the issue"
+                            required
+                          />
+                        </label>
+                      )}
+                    </div>
 
                     <label className="details-form-field">
                       <span>Priority</span>

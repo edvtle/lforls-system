@@ -15,7 +15,9 @@ import {
   faSun,
   faTrash,
   faUser,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
+import Modal from "../components/Modal";
 import SelectDropdown from "../components/ui/SelectDropdown";
 import { useAuth } from "../context/AuthContext";
 import { updateProfileById } from "../services/authService";
@@ -59,6 +61,8 @@ const Profile = () => {
   const [reportFilter, setReportFilter] = useState("All");
   const [reports, setReports] = useState([]);
   const [editingReportId, setEditingReportId] = useState("");
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingReportData, setEditingReportData] = useState(null);
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
   const [accountProfile, setAccountProfile] = useState({
     name: "User Demo",
@@ -402,36 +406,7 @@ const Profile = () => {
                 <h4>{entry.name}</h4>
                 <span className={`profile-status profile-status-${entry.reportStatus.toLowerCase()}`}>{entry.reportStatus}</span>
 
-                {editingReportId === entry.id ? (
-                  <div className="profile-edit-grid">
-                    <input
-                      type="text"
-                      value={entry.name}
-                      onChange={(event) =>
-                        setReports((current) =>
-                          current.map((item) => (item.id === entry.id ? { ...item, name: event.target.value } : item))
-                        )
-                      }
-                    />
-                    <input
-                      type="text"
-                      value={entry.location}
-                      onChange={(event) =>
-                        setReports((current) =>
-                          current.map((item) => (item.id === entry.id ? { ...item, location: event.target.value } : item))
-                        )
-                      }
-                    />
-                    <SelectDropdown
-                      value={entry.reportStatus}
-                      onChange={(value) => setEntryReportStatus(entry.id, value)}
-                      className="profile-edit-select"
-                      options={["Lost", "Found", "Claimed"]}
-                    />
-                  </div>
-                ) : (
-                  <p className="profile-report-meta">{entry.location} • {formatRelative(entry.createdAt)}</p>
-                )}
+                <p className="profile-report-meta">{entry.location} • {formatRelative(entry.createdAt)}</p>
 
                 <div className="profile-card-actions">
                   <Link to={entry.path || `/details/${entry.id}`} className="hero-button hero-button-lost">
@@ -441,14 +416,11 @@ const Profile = () => {
                     type="button"
                     className="profile-inline-btn"
                     onClick={() => {
-                      if (editingReportId === entry.id) {
-                        saveReportChanges(entry);
-                      } else {
-                        setEditingReportId(entry.id);
-                      }
+                      setEditingReportData({ ...entry });
+                      setEditModalOpen(true);
                     }}
                   >
-                    <FontAwesomeIcon icon={faPen} /> {editingReportId === entry.id ? "Save" : "Edit"}
+                    <FontAwesomeIcon icon={faPen} /> Edit
                   </button>
                   <button
                     type="button"
@@ -729,6 +701,118 @@ const Profile = () => {
       </div>
 
       {snackbar.visible ? <div className="details-snackbar">{snackbar.message}</div> : null}
+          <Modal
+            isOpen={editModalOpen}
+            onClose={() => {
+              setEditModalOpen(false);
+              setEditingReportData(null);
+            }}
+            ariaLabel="Edit report"
+            overlayClassName="details-flow-modal"
+            panelClassName="details-flow-panel"
+          >
+            {editingReportData && (
+              <>
+                <div className="details-modal-head">
+                  <div>
+                    <p className="page-kicker">Manage Report</p>
+                    <h3 className="page-title">Edit Report Details</h3>
+                    <p className="details-flow-note">Update the information for this report.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="details-close-button"
+                    onClick={() => {
+                      setEditModalOpen(false);
+                      setEditingReportData(null);
+                    }}
+                    aria-label="Close dialog"
+                  >
+                    <FontAwesomeIcon icon={faXmark} />
+                  </button>
+                </div>
+
+                <form
+                  className="details-flow-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveReportChanges(editingReportData);
+                    setEditModalOpen(false);
+                  }}
+                >
+                  <div className="details-form-grid">
+                    <label className="details-form-field">
+                      <span>Item Name</span>
+                      <input
+                        type="text"
+                        value={editingReportData.name}
+                        onChange={(event) =>
+                          setEditingReportData((current) => ({
+                            ...current,
+                            name: event.target.value,
+                          }))
+                        }
+                        required
+                      />
+                    </label>
+
+                    <label className="details-form-field">
+                      <span>Location</span>
+                      <input
+                        type="text"
+                        value={editingReportData.location}
+                        onChange={(event) =>
+                          setEditingReportData((current) => ({
+                            ...current,
+                            location: event.target.value,
+                          }))
+                        }
+                        required
+                      />
+                    </label>
+                  </div>
+
+                  <label className="details-form-field">
+                    <span>Status</span>
+                    <select
+                      value={editingReportData.reportStatus}
+                      onChange={(event) =>
+                        setEditingReportData((current) => {
+                          const nextStatus = event.target.value;
+                          return {
+                            ...current,
+                            reportStatus: nextStatus,
+                            reportType: nextStatus === "Found" ? "found" : "lost",
+                          };
+                        })
+                      }
+                      required
+                    >
+                      <option value="Lost">Lost</option>
+                      <option value="Found">Found</option>
+                      <option value="Claimed">Claimed</option>
+                    </select>
+                  </label>
+
+                  <div className="details-flow-actions">
+                    <button
+                      type="button"
+                      className="details-ghost-button"
+                      onClick={() => {
+                        setEditModalOpen(false);
+                        setEditingReportData(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" className="details-flow-submit">
+                      Save Changes
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </Modal>
     </section>
   );
 };
