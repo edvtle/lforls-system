@@ -109,17 +109,23 @@ const ImageCropModal = ({
         aria-label="Crop uploaded image"
         onClick={(event) => event.stopPropagation()}
       >
-        <h3>Crop Image</h3>
-        <button
-          type="button"
-          className="report-crop-close"
-          aria-label="Close cropper"
-          onClick={onCancel}
-          disabled={isApplying}
-        >
-          <FontAwesomeIcon icon={faXmark} />
-        </button>
-        <p>Adjust the frame so the item is centered and clear.</p>
+        <div className="report-crop-head">
+          <div>
+            <p className="report-crop-kicker">Image editor</p>
+            <h3>Crop image</h3>
+            <p>Adjust the frame so the item is centered and clear.</p>
+          </div>
+
+          <button
+            type="button"
+            className="report-crop-close"
+            aria-label="Close cropper"
+            onClick={onCancel}
+            disabled={isApplying}
+          >
+            <FontAwesomeIcon icon={faXmark} />
+          </button>
+        </div>
 
         <div className="report-crop-stage">
           <Cropper
@@ -134,7 +140,7 @@ const ImageCropModal = ({
         </div>
 
         <label className="report-crop-zoom">
-          Zoom
+          <span>Zoom level</span>
           <input
             type="range"
             min={1}
@@ -143,6 +149,7 @@ const ImageCropModal = ({
             value={zoom}
             onChange={(event) => setZoom(Number(event.target.value))}
           />
+          <strong>{zoom.toFixed(1)}x</strong>
         </label>
 
         <div className="report-crop-actions">

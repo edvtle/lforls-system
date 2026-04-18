@@ -267,17 +267,20 @@ const BrowseItems = () => {
             />
           </label>
 
-          <label className="browse-field browse-field-check">
+          <div className="browse-field browse-field-check">
             <span>Saved</span>
-            <label className="browse-check-label">
+            <label className="browse-toggle" htmlFor="saved-only-toggle">
               <input
+                id="saved-only-toggle"
+                className="browse-toggle-input"
                 type="checkbox"
                 checked={savedOnly}
                 onChange={(event) => setSavedOnly(event.target.checked)}
               />
-              Show bookmarked only
+              <span className="browse-toggle-track" aria-hidden="true" />
+              <span className="browse-toggle-text">Show bookmarked only</span>
             </label>
-          </label>
+          </div>
 
           <button type="button" className="browse-reset" onClick={resetFilters}>
             Reset Filters

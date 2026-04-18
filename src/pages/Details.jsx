@@ -38,6 +38,19 @@ const formatDate = (value) =>
     year: "numeric",
   });
 
+const normalizeReporterField = (value, fallback = "Not provided") => {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  }
+
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  return String(value);
+};
+
 const getModalConfig = (type) => {
   if (type === "claim") {
     return {
@@ -151,11 +164,17 @@ const Details = () => {
     };
   }, [itemId]);
 
-  const gallery = item?.gallery?.length
-    ? item.gallery
-    : item?.image
-      ? [item.image]
-      : [];
+  const gallery = useMemo(() => {
+    if (item?.gallery?.length) {
+      return item.gallery;
+    }
+
+    if (item?.image) {
+      return [item.image];
+    }
+
+    return [];
+  }, [item?.gallery, item?.image]);
 
   const relatedItems = useMemo(() => {
     if (!item) {
@@ -449,6 +468,11 @@ const Details = () => {
   const primaryActionType = item.status === "Lost" ? "claim" : hasClaimRequest ? "claimed-review" : "notify";
   const secondaryActionIcon = item.status === "Lost" ? "message" : "close";
   const secondaryActionType = item.status === "Lost" ? "contact" : null;
+  const reporterName = normalizeReporterField(item.reporterName, "Unknown reporter");
+  const reporterDepartment = normalizeReporterField(item.reporterDepartment);
+  const reporterProgram = normalizeReporterField(item.reporterProgram);
+  const reporterYearSection = normalizeReporterField(item.reporterYearSection);
+  const reporterInitial = reporterName.charAt(0).toUpperCase();
 
   return (
     <section className="details-page">
@@ -532,6 +556,18 @@ const Details = () => {
 
               <button
                 type="button"
+                className="details-ghost-button details-ghost-alert"
+                onClick={() => {
+                  setFakeReported((current) => !current);
+                  openModal("report");
+                }}
+                title={fakeReported ? "Report submitted" : "Report fake item"}
+              >
+                <Icon type="flag" />
+              </button>
+
+              <button
+                type="button"
                 className={`details-ghost-button ${(claimed || Boolean(approvedClaim)) ? "details-ghost-active" : ""}`}
                 disabled={item.status === "Found" && (claimed || Boolean(approvedClaim))}
                 onClick={() => {
@@ -555,18 +591,6 @@ const Details = () => {
               >
                 <Icon type="shield" />
                 {item.status === "Found" ? "Claimed" : claimed ? "Claimed" : "Claim"}
-              </button>
-
-              <button
-                type="button"
-                className="details-ghost-button details-ghost-alert"
-                onClick={() => {
-                  setFakeReported((current) => !current);
-                  openModal("report");
-                }}
-                title={fakeReported ? "Report submitted" : "Report fake item"}
-              >
-                <Icon type="flag" />
               </button>
             </div>
 
@@ -610,47 +634,36 @@ const Details = () => {
           <section className="details-section details-reporter-section">
             <div className="details-reporter-card">
               <div className="details-reporter-head">
-                <div className="details-reporter-title-wrap">
-                  <p className="page-kicker">Reporter Information</p>
-                  <h3>{item.reporterName || "Unknown reporter"}</h3>
-                  <p className="details-reporter-subtitle">
-                    Verified academic details shown for professional and secure coordination.
-                  </p>
-                </div>
-                <div className="details-reporter-verified" aria-label="Verified profile">
-                  <FontAwesomeIcon icon={faShieldHalved} />
-                  Verified
+                <div className="details-reporter-identity">
+                  <div className="details-reporter-avatar" aria-hidden="true">{reporterInitial}</div>
+                  <div className="details-reporter-title-wrap">
+                    <p className="page-kicker">Reporter information</p>
+                    <h3>{reporterName}</h3>
+                  </div>
                 </div>
               </div>
 
               <dl className="details-reporter-grid">
                 <div className="details-reporter-row">
                   <dt>
-                    <FontAwesomeIcon icon={faBuildingUser} />
+                    <FontAwesomeIcon icon={faBuildingUser} fixedWidth />
                     Department
                   </dt>
-                  <dd>{item.reporterDepartment || "Not provided"}</dd>
+                  <dd className={reporterDepartment === "Not provided" ? "details-reporter-value-muted" : ""}>{reporterDepartment}</dd>
                 </div>
                 <div className="details-reporter-row">
                   <dt>
-                    <FontAwesomeIcon icon={faGraduationCap} />
+                    <FontAwesomeIcon icon={faGraduationCap} fixedWidth />
                     Program
                   </dt>
-                  <dd>{item.reporterProgram || "Not provided"}</dd>
+                  <dd className={reporterProgram === "Not provided" ? "details-reporter-value-muted" : ""}>{reporterProgram}</dd>
                 </div>
                 <div className="details-reporter-row">
                   <dt>
-                    <FontAwesomeIcon icon={faIdBadge} />
+                    <FontAwesomeIcon icon={faIdBadge} fixedWidth />
                     Yr/Sec
                   </dt>
-                  <dd>{item.reporterYearSection || "Not provided"}</dd>
-                </div>
-                <div className="details-reporter-row">
-                  <dt>
-                    <FontAwesomeIcon icon={faShieldHalved} />
-                    Contact policy
-                  </dt>
-                  <dd>Protected in-app contact only</dd>
+                  <dd className={reporterYearSection === "Not provided" ? "details-reporter-value-muted" : ""}>{reporterYearSection}</dd>
                 </div>
               </dl>
             </div>
