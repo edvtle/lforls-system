@@ -220,6 +220,7 @@ const ReportFoundItem = () => {
           color: form.color,
           brand: form.brand,
           identifiers: form.identifiers,
+          custodyNote: form.custodyNote,
           contactMethod: form.contactMethod,
           contactValue: form.contactValue,
           notifyOnMatch: form.allowOwnerAlerts,

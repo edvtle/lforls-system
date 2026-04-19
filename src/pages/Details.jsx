@@ -21,7 +21,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import Modal from "../components/Modal";
 import { claimsUpdatedEventName, createClaim, getClaims, updateClaimStatus as persistClaimStatus } from "../utils/claimStore";
-import { listRecentItems } from "../services/itemsService";
+import { getItemById } from "../services/itemsService";
 import { submitItemListingReport } from "../services/reportingService";
 import { updateUserReportByItemId } from "../utils/reportStore";
 import { createNotification } from "../utils/notificationStore";
@@ -129,7 +129,7 @@ const Icon = ({ type }) => {
 
 const Details = () => {
   const { itemId } = useParams();
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [item, setItem] = useState(null);
@@ -140,10 +140,7 @@ const Details = () => {
 
     const loadItem = async () => {
       try {
-        const items = await listRecentItems({ limit: 500 });
-        const foundItem = items.find(
-          (entry) => String(entry.id) === String(itemId),
-        );
+        const foundItem = await getItemById(itemId);
         if (mounted) {
           setItem(foundItem || null);
         }
@@ -283,6 +280,14 @@ const Details = () => {
   }, [item?.id]);
 
   const openModal = (type) => {
+    if (type === "contact" || type === "notify") {
+      setFormState((current) => ({
+        ...current,
+        fullName: current.fullName || profile?.fullName || "",
+        contact: current.contact || profile?.email || session?.user?.email || "",
+      }));
+    }
+
     setSubmissionStatus("");
     setActiveModal({ type, ...getModalConfig(type) });
   };
@@ -301,6 +306,47 @@ const Details = () => {
   const closeModal = () => {
     setActiveModal(null);
     setSubmissionStatus("");
+  };
+
+  const openDirectConversation = async () => {
+    if (!item) {
+      return;
+    }
+
+    if (!currentUserId) {
+      showSnackbar("Please sign in to contact the reporter.");
+      return;
+    }
+
+    if (!item.reporterId) {
+      showSnackbar("Reporter account is unavailable for this item.");
+      return;
+    }
+
+    if (item.reporterId === currentUserId) {
+      showSnackbar("You cannot start a contact request on your own report.");
+      return;
+    }
+
+    const fallbackName = item.reporterName || "reporter";
+    const maskedIdentity = `${fallbackName.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 6) || "user"}_***`;
+    const conversationId = `conv-item-${item.id}`;
+
+    try {
+      const conversation = await createOrGetConversation({
+        id: conversationId,
+        title: `${item.status === "Lost" ? "Owner" : "Finder"} - ${item.name}`,
+        context: item.name,
+        maskedIdentity,
+        itemId: item.id,
+        currentUserId,
+        otherUserId: item.reporterId,
+      });
+
+      navigate(`/messages?conv=${encodeURIComponent(conversation.id)}`);
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to open messaging right now.");
+    }
   };
 
   const pendingClaim = useMemo(
@@ -379,13 +425,23 @@ const Details = () => {
           return;
         }
 
+        if (!item.reporterId) {
+          setSubmissionStatus("Reporter account is unavailable, so messaging cannot be started for this item.");
+          return;
+        }
+
+        if (item.reporterId === currentUserId) {
+          setSubmissionStatus("You cannot start a contact request on your own report.");
+          return;
+        }
+
         const fallbackName = item.reporterName || "reporter";
         const maskedIdentity = `${fallbackName.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 6) || "user"}_***`;
         const conversationId = `conv-item-${item.id}`;
 
         const conversation = await createOrGetConversation({
           id: conversationId,
-          title: `${item.status === "Lost" ? "Finder" : "Owner"} - ${item.name}`,
+          title: `${item.status === "Lost" ? "Owner" : "Finder"} - ${item.name}`,
           context: item.name,
           maskedIdentity,
           itemId: item.id,
@@ -466,16 +522,14 @@ const Details = () => {
   const currentUserId = session?.user?.id || null;
   const isReportedByCurrentUser = Boolean(currentUserId && item.reporterId && currentUserId === item.reporterId);
   const hasClaimRequest = item.status === "Found" && itemClaims.length > 0;
-  const primaryActionLabel = item.status === "Lost" ? "This is my item" : hasClaimRequest ? "Claimed" : "Notify Owner";
-  const secondaryActionLabel = item.status === "Lost" ? "Contact Finder" : "Not a match";
-  const primaryActionType = item.status === "Lost" ? "claim" : hasClaimRequest ? "claimed-review" : "notify";
-  const secondaryActionIcon = item.status === "Lost" ? "message" : "close";
-  const secondaryActionType = item.status === "Lost" ? "contact" : null;
+  const isLostItem = item.status === "Lost";
+  const isFoundItem = item.status === "Found";
   const reporterName = normalizeReporterField(item.reporterName, "Unknown reporter");
   const reporterDepartment = normalizeReporterField(item.reporterDepartment);
   const reporterProgram = normalizeReporterField(item.reporterProgram);
   const reporterYearSection = normalizeReporterField(item.reporterYearSection);
   const reporterInitial = reporterName.charAt(0).toUpperCase();
+  const safeSelectedImage = selectedImage || item.image || null;
 
   return (
     <section className="details-page">
@@ -503,7 +557,7 @@ const Details = () => {
               onClick={() => setActiveModal({ type: "zoom" })}
               aria-label={`Zoom ${item.name} image`}
             >
-              <img src={selectedImage} alt={item.name} className="details-main-image" />
+              <img src={safeSelectedImage || undefined} alt={item.name} className="details-main-image" />
             </button>
 
             <span className={`details-status-badge details-status-${statusTone}`}>
@@ -732,34 +786,45 @@ const Details = () => {
             <p className="details-flow-note">You reported this item. Contact and claim actions are hidden for your own report.</p>
           ) : (
             <div className="details-action-grid">
-              <button
-                type="button"
-                className={`details-action-button ${item.status === "Lost" ? "details-action-primary-lost" : "details-action-primary-found"}`}
-                onClick={() => {
-                  if (item.status === "Found" && hasClaimRequest) {
-                    handleFoundItemClaimedClick();
-                    return;
-                  }
+              {isLostItem ? (
+                <button
+                  type="button"
+                  className="details-action-button details-action-secondary details-action-button-contact-owner"
+                  onClick={openDirectConversation}
+                >
+                  <Icon type="message" />
+                  Contact Owner
+                </button>
+              ) : null}
 
-                  openModal(primaryActionType);
-                }}
-              >
-                <Icon type="check" />
-                {primaryActionLabel}
-              </button>
+              {isFoundItem ? (
+                <>
+                  <button
+                    type="button"
+                    className="details-action-button details-action-primary-lost"
+                    onClick={() => {
+                      if (hasClaimRequest) {
+                        handleFoundItemClaimedClick();
+                        return;
+                      }
 
-              <button
-                type="button"
-                className="details-action-button details-action-secondary"
-                onClick={() =>
-                  secondaryActionType
-                    ? openModal(secondaryActionType)
-                    : setSubmissionStatus("Marked as not a match. The item stays in review for other users.")
-                }
-              >
-                <Icon type={secondaryActionIcon} />
-                {secondaryActionLabel}
-              </button>
+                      openModal("claim");
+                    }}
+                  >
+                    <Icon type="check" />
+                    {hasClaimRequest ? "Claimed" : "This is my item"}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="details-action-button details-action-secondary"
+                    onClick={openDirectConversation}
+                  >
+                    <Icon type="message" />
+                    Contact Finder
+                  </button>
+                </>
+              ) : null}
             </div>
           )}
 
@@ -818,7 +883,7 @@ const Details = () => {
           onClick={() => setLightboxZoomed((current) => !current)}
           aria-label="Toggle image zoom"
         >
-          <img src={selectedImage} alt={item.name} className="details-lightbox-image" />
+          <img src={safeSelectedImage || undefined} alt={item.name} className="details-lightbox-image" />
         </button>
       </Modal>
 

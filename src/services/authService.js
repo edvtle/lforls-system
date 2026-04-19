@@ -19,7 +19,8 @@ const normalizeProfile = (profile, fallbackEmail = "") => ({
 });
 
 const normalizeEmail = (email = "") => email.trim().toLowerCase();
-const resetApiBaseUrl = import.meta.env.VITE_RESET_API_BASE_URL || "";
+const resetApiBaseUrl =
+  import.meta.env.VITE_RESET_API_BASE_URL || "http://localhost:4001";
 const resetTokensByEmail = new Map();
 const resetTokenStorageKey = (email) => `reset_token_${normalizeEmail(email)}`;
 
@@ -82,17 +83,57 @@ export const signIn = async ({ email, password }) => {
 export const signUp = async ({ fullName, email, password }) => {
   assertSupabase();
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
+  const normalizedEmail = normalizeEmail(email);
+  let existsBefore = null;
+  try {
+    existsBefore = await checkPasswordResetEmailExists({
+      email: normalizedEmail,
+    });
+  } catch {
+    existsBefore = null;
+  }
+
+  const signupPayload = {
+    email: normalizedEmail,
     password,
     options: {
       data: {
         full_name: fullName,
       },
     },
-  });
+  };
 
-  if (error) throw error;
+  let { data, error } = await supabase.auth.signUp(signupPayload);
+
+  if (error) {
+    const message = String(error?.message || "").toLowerCase();
+    const isDuplicate = message.includes("already registered");
+
+    // If our auth lookup said email does not exist, try purging orphan auth rows then retry once.
+    if (isDuplicate && existsBefore === false && resetApiBaseUrl) {
+      try {
+        await callResetApi("/api/admin/purge-orphan-auth-user", {
+          email: normalizedEmail,
+        });
+      } catch {
+        // Ignore purge failures and continue with fallback retry path below.
+      }
+
+      const retry = await supabase.auth.signUp(signupPayload);
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (error) {
+      const nextMessage = String(error?.message || "").toLowerCase();
+      if (nextMessage.includes("already registered")) {
+        throw new Error(
+          "This email is already in the auth system. Try logging in or resetting your password.",
+        );
+      }
+      throw error;
+    }
+  }
 
   const user = data.user;
   if (!user) {

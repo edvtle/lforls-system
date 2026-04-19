@@ -2,18 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
+  faBoxArchive,
   faBan,
   faCircleCheck,
+  faEllipsisVertical,
   faFlag,
   faPaperPlane,
   faShieldHalved,
+  faTrashCan,
 } from "@fortawesome/free-solid-svg-icons";
 import Modal from "../components/Modal";
 import {
+  archiveConversation,
+  deleteConversation,
   getConversationMessages,
   getConversations,
   messagesUpdatedEventName,
   markConversationRead,
+  reportConversation,
   sendMessage,
   updateConversationFlags,
 } from "../utils/messagingStore";
@@ -48,6 +54,7 @@ const Messages = () => {
     programYear: "",
   });
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
+  const [menuConversationId, setMenuConversationId] = useState("");
 
   const showSnackbar = (message) => {
     setSnackbar({ visible: true, message });
@@ -144,6 +151,24 @@ const Messages = () => {
     [conversations, activeId]
   );
 
+  const canSubmitClaimVerification = useMemo(() => {
+    if (!activeConversation || !currentUserId) {
+      return false;
+    }
+
+    return (
+      String(activeConversation.itemType || "").toLowerCase() === "found"
+      && activeConversation.reporterId
+      && activeConversation.reporterId !== currentUserId
+    );
+  }, [activeConversation, currentUserId]);
+
+  useEffect(() => {
+    if (!canSubmitClaimVerification && showVerification) {
+      setShowVerification(false);
+    }
+  }, [canSubmitClaimVerification, showVerification]);
+
   const conversationSummaries = useMemo(() => conversations, [conversations]);
 
   const filteredConversations = useMemo(() => {
@@ -198,6 +223,11 @@ const Messages = () => {
 
   const submitVerification = async () => {
     if (!activeConversation) {
+      return;
+    }
+
+    if (!canSubmitClaimVerification) {
+      showSnackbar("Claim verification is available only when contacting a FOUND item reporter.");
       return;
     }
 
@@ -270,7 +300,12 @@ const Messages = () => {
     }
 
     try {
-      await updateConversationFlags(activeConversation.id, { reported: true });
+      await reportConversation({
+        conversationId: activeConversation.id,
+        itemId: activeConversation.itemId,
+        itemName: activeConversation.context,
+        userId: currentUserId,
+      });
       createNotification({
         type: "safety",
         priority: "high",
@@ -297,6 +332,42 @@ const Messages = () => {
       showSnackbar(nextBlocked ? "Conversation blocked." : "Conversation unblocked.");
     } catch (error) {
       showSnackbar(error?.message || "Unable to update conversation status.");
+    }
+  };
+
+  const handleArchiveConversation = async (conversationId) => {
+    if (!conversationId || !currentUserId) {
+      return;
+    }
+
+    try {
+      await archiveConversation({ conversationId, userId: currentUserId });
+      if (activeId === conversationId) {
+        setActiveId("");
+      }
+      setMenuConversationId("");
+      await refreshConversations();
+      showSnackbar("Conversation archived.");
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to archive conversation.");
+    }
+  };
+
+  const handleDeleteConversation = async (conversationId) => {
+    if (!conversationId || !currentUserId) {
+      return;
+    }
+
+    try {
+      await deleteConversation({ conversationId, userId: currentUserId });
+      if (activeId === conversationId) {
+        setActiveId("");
+      }
+      setMenuConversationId("");
+      await refreshConversations();
+      showSnackbar("Conversation deleted from your inbox.");
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to delete conversation.");
     }
   };
 
@@ -331,19 +402,52 @@ const Messages = () => {
             ) : null}
             {filteredConversations.map((entry) => (
               <li key={entry.id}>
-                <button
-                  type="button"
-                  className={`messages-conversation-item ${entry.id === activeConversation?.id ? "messages-conversation-item-active" : ""}`}
-                  onClick={() => setActiveId(entry.id)}
-                >
-                  <div className="messages-conversation-topline">
-                    <strong>{entry.title}</strong>
-                    <small>{formatTime(entry.previewTime)}</small>
+                <div className={`messages-conversation-item ${entry.id === activeConversation?.id ? "messages-conversation-item-active" : ""}`}>
+                  <button
+                    type="button"
+                    className="messages-conversation-main"
+                    onClick={() => setActiveId(entry.id)}
+                  >
+                    <div className="messages-conversation-topline">
+                      <strong>{entry.title}</strong>
+                      <small>{formatTime(entry.previewTime)}</small>
+                    </div>
+                    <span>{entry.maskedIdentity}</span>
+                    <p>{entry.preview}</p>
+                    {entry.unreadCount ? <em>{entry.unreadCount}</em> : null}
+                  </button>
+
+                  <div className="messages-conversation-menu-wrap">
+                    <button
+                      type="button"
+                      className="messages-conversation-menu-trigger"
+                      aria-label="Conversation actions"
+                      onClick={() =>
+                        setMenuConversationId((current) =>
+                          current === entry.id ? "" : entry.id,
+                        )
+                      }
+                    >
+                      <FontAwesomeIcon icon={faEllipsisVertical} />
+                    </button>
+                    {menuConversationId === entry.id ? (
+                      <div className="messages-conversation-menu">
+                        <button
+                          type="button"
+                          onClick={() => handleArchiveConversation(entry.id)}
+                        >
+                          <FontAwesomeIcon icon={faBoxArchive} /> Archive
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteConversation(entry.id)}
+                        >
+                          <FontAwesomeIcon icon={faTrashCan} /> Delete
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                  <span>{entry.maskedIdentity}</span>
-                  <p>{entry.preview}</p>
-                  {entry.unreadCount ? <em>{entry.unreadCount}</em> : null}
-                </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -379,9 +483,11 @@ const Messages = () => {
                 <FontAwesomeIcon icon={faShieldHalved} /> Safety mode on. Email and phone are not shared in chat.
               </div>
 
-              <button type="button" className="messages-claim-button" onClick={() => setShowVerification((open) => !open)}>
-                <FontAwesomeIcon icon={faCircleCheck} /> This is my item (claim verification)
-              </button>
+              {canSubmitClaimVerification ? (
+                <button type="button" className="messages-claim-button" onClick={() => setShowVerification((open) => !open)}>
+                  <FontAwesomeIcon icon={faCircleCheck} /> This is my item (claim verification)
+                </button>
+              ) : null}
 
               <div className="messages-thread" role="log" aria-live="polite">
                 {threadLoading ? <p>Loading thread...</p> : null}

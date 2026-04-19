@@ -1,5 +1,8 @@
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 
+const resetApiBaseUrl =
+  import.meta.env.VITE_RESET_API_BASE_URL || "http://localhost:4001";
+
 const ITEM_FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1200&q=80";
 
@@ -63,7 +66,7 @@ const mapUser = (profile) => ({
   email: profile.email || "No email",
   department: profile.college_dept || "N/A",
   yearSection: profile.year_section || "N/A",
-  reportsCount: Number(profile.items?.[0]?.count || 0),
+  reportsCount: Number(profile.reports_count ?? profile.items?.[0]?.count ?? 0),
   status: formatLabel(profile.status || "active"),
   rawStatus: profile.status || "active",
 });
@@ -80,14 +83,47 @@ const mapClaim = (claim) => ({
   rawStatus: claim.status || "pending",
 });
 
-const mapFlag = (flag) => ({
-  id: flag.id,
-  reason: flag.reason || flag.title || "Reported issue",
-  target: flag.target || flag.body || "No target details",
-  severity: formatLabel(flag.severity || flag.priority || "medium"),
-  status: formatLabel(flag.status || "open"),
-  rawStatus: flag.status || "open",
-});
+const mapFlag = (flag) => {
+  const images = Array.isArray(flag.items?.item_images)
+    ? flag.items.item_images
+    : [];
+  const primary = images.find((entry) => entry.is_primary) || images[0];
+
+  return {
+    id: flag.id,
+    userId: flag.user_id,
+    itemId: flag.item_id,
+    reason: flag.reason || flag.title || "Reported issue",
+    target: flag.target || flag.body || "No target details",
+    body: flag.body || "",
+    severity: formatLabel(flag.severity || flag.priority || "medium"),
+    rawSeverity: flag.severity || "medium",
+    status: formatLabel(flag.status || "open"),
+    rawStatus: flag.status || "open",
+    createdAt: flag.created_at || "",
+    itemName: flag.item_name || flag.items?.item_name || "Unknown item",
+    itemDetails: flag.items
+      ? {
+          id: flag.items.id,
+          image: primary?.public_url || ITEM_FALLBACK_IMAGE,
+          name: flag.items.item_name || "Unnamed item",
+          category: flag.items.category || "Others",
+          location: flag.items.location_text || "Unknown",
+          description: flag.items.description || "No description provided.",
+          color: flag.items.color || "N/A",
+          brand: flag.items.brand || "N/A",
+          identifiers: flag.items.identifiers || "N/A",
+          contactMethod: flag.items.contact_method || "N/A",
+          contactValue: flag.items.contact_value || "N/A",
+          typeLabel: flag.items.type === "found" ? "Found" : "Lost",
+          lifecycleStatus: formatLabel(flag.items.status || "open"),
+          date: formatDate(
+            flag.items.date_lost_or_found || flag.items.created_at,
+          ),
+        }
+      : null,
+  };
+};
 
 const groupReportsByDay = (items) => {
   const today = new Date();
@@ -162,6 +198,34 @@ export const listAdminItems = async () => {
 export const listAdminUsers = async () => {
   assertSupabase();
 
+  // Preferred path: database RPC that includes all auth users, even if profile row is missing.
+  const { data: rpcUsers, error: rpcError } =
+    await supabase.rpc("admin_list_users");
+  if (!rpcError && Array.isArray(rpcUsers)) {
+    return rpcUsers.map(mapUser);
+  }
+
+  if (resetApiBaseUrl) {
+    let response;
+    try {
+      response = await fetch(`${resetApiBaseUrl}/api/admin/list-users`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+    } catch {
+      response = null;
+    }
+
+    if (response?.ok) {
+      const body = await response.json().catch(() => ({}));
+      return (body?.users || []).map(mapUser);
+    }
+  }
+
+  // Fallback when admin API is unavailable.
   const { data, error } = await supabase
     .from("profiles")
     .select(
@@ -178,13 +242,32 @@ export const listAdminUsers = async () => {
 export const listAdminClaims = async () => {
   assertSupabase();
 
-  const { data, error } = await supabase
+  const primary = await supabase
     .from("claims")
     .select(
       "id, full_name, claimant_name, contact, contact_value, college_dept, program_year, route_to, status, item_name, items(item_name)",
     )
     .order("created_at", { ascending: false })
     .limit(200);
+
+  let data = primary.data;
+  let error = primary.error;
+
+  // Some schemas do not expose claims->items relation; fallback to direct claim columns.
+  if (error) {
+    const fallback = await supabase
+      .from("claims")
+      .select(
+        "id, full_name, claimant_name, contact, contact_value, college_dept, program_year, route_to, status, item_name",
+      )
+      .order("created_at", { ascending: false })
+      .limit(200);
+
+    if (!fallback.error) {
+      data = fallback.data;
+      error = null;
+    }
+  }
 
   if (error) {
     if (isMissingRelationError(error)) {
@@ -201,7 +284,9 @@ export const listAdminFlags = async () => {
 
   const { data, error } = await supabase
     .from("reports")
-    .select("id, reason, target, severity, status, created_at")
+    .select(
+      "id, user_id, item_id, item_name, reason, target, body, severity, status, created_at, items(id, type, status, item_name, category, location_text, description, color, brand, identifiers, contact_method, contact_value, date_lost_or_found, created_at, item_images(public_url, is_primary))",
+    )
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -280,6 +365,7 @@ export const updateAdminUserProfile = async ({
   assertSupabase();
 
   const payload = {
+    id: userId,
     full_name: fullName?.trim() || "",
     email: email?.trim() || "",
     college_dept: department?.trim() || "",
@@ -288,8 +374,7 @@ export const updateAdminUserProfile = async ({
 
   const { error } = await supabase
     .from("profiles")
-    .update(payload)
-    .eq("id", userId);
+    .upsert(payload, { onConflict: "id" });
   if (error) throw error;
 };
 
@@ -318,4 +403,77 @@ export const updateAdminFlagStatus = async (flagId, status) => {
     }
     throw error;
   }
+};
+
+export const removeFlaggedContent = async ({ flagId, itemId }) => {
+  assertSupabase();
+
+  const { error: reportError } = await supabase
+    .from("reports")
+    .update({ status: "content_removed" })
+    .eq("id", flagId);
+
+  if (reportError) {
+    throw reportError;
+  }
+
+  if (itemId) {
+    const { error: itemError } = await supabase
+      .from("items")
+      .update({ status: "content_removed" })
+      .eq("id", itemId);
+
+    if (itemError) {
+      throw itemError;
+    }
+  }
+};
+
+export const deleteAdminUser = async (userId) => {
+  assertSupabase();
+
+  // Preferred path: database RPC.
+  const { error: rpcError } = await supabase.rpc("admin_delete_user", {
+    target_user_id: userId,
+  });
+  if (!rpcError) {
+    return { success: true };
+  }
+
+  let response;
+  try {
+    response = await fetch(`${resetApiBaseUrl}/api/admin/delete-user`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userId }),
+    });
+  } catch {
+    throw new Error(
+      "Admin service is offline. Start the reset server and try again.",
+    );
+  }
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to delete user account.");
+  }
+
+  return body;
+};
+
+export const sendUserWarning = async (flagId, userId, message, reason) => {
+  assertSupabase();
+
+  const { error } = await supabase
+    .from("reports")
+    .update({ status: "warned_user" })
+    .eq("id", flagId);
+
+  if (error) {
+    throw error;
+  }
+
+  return { success: true };
 };

@@ -88,6 +88,19 @@ export const AuthProvider = ({ children }) => {
   const signIn = async ({ email, password }) => {
     const { session: nextSession } = await authSignIn({ email, password });
     const normalized = await normalizeAuth(nextSession);
+
+    const status = String(normalized.profile?.status || "active").toLowerCase();
+    if (status === "suspended" || status === "banned") {
+      await authSignOut();
+      setSession(null);
+      setProfile(null);
+      throw new Error(
+        status === "banned"
+          ? "Your account has been banned. Please contact an administrator."
+          : "Your account is suspended. Please contact an administrator.",
+      );
+    }
+
     setSession(normalized.session);
     setProfile(normalized.profile);
     return normalized;

@@ -27,8 +27,11 @@ import AnimatedContent from "../components/AnimatedContent";
 import SearchBar from "../components/ui/SearchBar";
 import { useAuth } from "../context/AuthContext";
 import {
+  deleteAdminUser,
   deleteAdminItem,
   loadAdminPanelData,
+  removeFlaggedContent,
+  sendUserWarning,
   updateAdminClaimStatus,
   updateAdminFlagStatus,
   updateAdminItemStatus,
@@ -79,6 +82,16 @@ const iconForLog = {
   flag: faFileCircleExclamation,
 };
 
+const adminDepartmentOptions = [
+  "College of Arts and Sciences",
+  "College of Business Administration",
+  "College of Nursing",
+  "College of Engineering",
+  "College of Education",
+  "College of Computer Studies",
+  "College of International Hospitality Management",
+];
+
 const renderEmptyRow = (message, colSpan) => (
   <tr>
     <td colSpan={colSpan}>{message}</td>
@@ -103,6 +116,12 @@ const AdminPanel = () => {
     yearSection: "",
   });
   const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedFlag, setSelectedFlag] = useState(null);
+  const [warnUserFlag, setWarnUserFlag] = useState(null);
+  const [warningForm, setWarningForm] = useState({
+    templateType: "generic",
+    customMessage: "",
+  });
   const [userStatusFilter, setUserStatusFilter] = useState("all");
   const [userDeptFilter, setUserDeptFilter] = useState("all");
 
@@ -243,6 +262,12 @@ const AdminPanel = () => {
       `User ${id} is now ${label}.`,
     );
 
+  const removeUser = (id) =>
+    withMutationFeedback(
+      () => deleteAdminUser(id),
+      `User ${id} was deleted from the account database.`,
+    );
+
   const openEditUserModal = (user) => {
     setEditingUser(user);
     setEditUserForm({
@@ -263,13 +288,20 @@ const AdminPanel = () => {
       return;
     }
 
+    const isAdministrator =
+      editUserForm.department.trim().toLowerCase() === "administrator";
+
     if (
       !editUserForm.name.trim() ||
       !editUserForm.email.trim() ||
       !editUserForm.department.trim() ||
-      !editUserForm.yearSection.trim()
+      (!isAdministrator && !editUserForm.yearSection.trim())
     ) {
-      showSnackbar("Name, email, department, and yr/sec are required.");
+      showSnackbar(
+        isAdministrator
+          ? "Name, email, and department are required."
+          : "Name, email, department, and yr/sec are required.",
+      );
       return;
     }
 
@@ -280,10 +312,33 @@ const AdminPanel = () => {
           fullName: editUserForm.name,
           email: editUserForm.email,
           department: editUserForm.department,
-          yearSection: editUserForm.yearSection,
+          yearSection: isAdministrator ? "" : editUserForm.yearSection,
         }),
       "User profile updated.",
     );
+
+    const updatedDepartment = editUserForm.department.trim();
+    const updatedYearSection = isAdministrator
+      ? ""
+      : editUserForm.yearSection.trim().toUpperCase();
+    const updatedStatus = editingUser.rawStatus || "active";
+
+    setPanelData((current) => ({
+      ...current,
+      users: current.users.map((user) =>
+        user.id === editingUser.id
+          ? {
+              ...user,
+              name: editUserForm.name.trim(),
+              email: editUserForm.email.trim(),
+              department: updatedDepartment || "N/A",
+              yearSection: updatedYearSection || "N/A",
+              rawStatus: updatedStatus,
+              status: updatedStatus.charAt(0).toUpperCase() + updatedStatus.slice(1),
+            }
+          : user,
+      ),
+    }));
 
     closeEditUserModal();
   };
@@ -298,6 +353,12 @@ const AdminPanel = () => {
     withMutationFeedback(
       () => updateAdminFlagStatus(id, status),
       `Flag ${id} updated: ${label}.`,
+    );
+
+  const removeContentFromFlag = (flag) =>
+    withMutationFeedback(
+      () => removeFlaggedContent({ flagId: flag.id, itemId: flag.itemId }),
+      `Content for report ${flag.id} has been removed.`,
     );
 
   const handleLogout = async () => {
@@ -645,6 +706,13 @@ const AdminPanel = () => {
                           >
                             {user.rawStatus === "banned" ? "Unban" : "Ban"}
                           </button>
+                          <button
+                            type="button"
+                            className="admin-action admin-action-delete"
+                            onClick={() => removeUser(user.id)}
+                          >
+                            Delete User
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -778,39 +846,24 @@ const AdminPanel = () => {
                           <button
                             type="button"
                             className="admin-action"
-                            onClick={() =>
-                              changeFlagStatus(
-                                flag.id,
-                                "reviewed",
-                                "Reviewed",
-                              )
-                            }
+                            onClick={() => setSelectedFlag(flag)}
                           >
                             Review
                           </button>
                           <button
                             type="button"
                             className="admin-action admin-action-delete"
-                            onClick={() =>
-                              changeFlagStatus(
-                                flag.id,
-                                "content_removed",
-                                "Content Removed",
-                              )
-                            }
+                            onClick={() => removeContentFromFlag(flag)}
                           >
                             Remove Content
                           </button>
                           <button
                             type="button"
                             className="admin-action admin-action-reject"
-                            onClick={() =>
-                              changeFlagStatus(
-                                flag.id,
-                                "warned_user",
-                                "Warned User",
-                              )
-                            }
+                            onClick={() => {
+                              setWarnUserFlag(flag);
+                              setWarningForm({ templateType: "generic", customMessage: "" });
+                            }}
                           >
                             Warn User
                           </button>
@@ -1000,13 +1053,27 @@ const AdminPanel = () => {
             </label>
             <label className="admin-modal-field">
               Department
-              <input
-                type="text"
+              <select
                 value={editUserForm.department}
                 onChange={(event) =>
-                  setEditUserForm((current) => ({ ...current, department: event.target.value }))
+                  setEditUserForm((current) => ({
+                    ...current,
+                    department: event.target.value,
+                    yearSection:
+                      event.target.value === "Administrator"
+                        ? ""
+                        : current.yearSection,
+                  }))
                 }
-              />
+                className="admin-filter-select"
+              >
+                <option value="">Select department</option>
+                {adminDepartmentOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="admin-modal-field">
               YR/SECTION
@@ -1016,8 +1083,13 @@ const AdminPanel = () => {
                 onChange={(event) =>
                   setEditUserForm((current) => ({ ...current, yearSection: event.target.value.toUpperCase() }))
                 }
-                placeholder="e.g., 3B"
+                placeholder={
+                  editUserForm.department === "Administrator"
+                    ? "Not required for Administrator"
+                    : "e.g., 3B"
+                }
                 maxLength={3}
+                disabled={editUserForm.department === "Administrator"}
               />
             </label>
             <div className="admin-modal-actions">
@@ -1085,6 +1157,157 @@ const AdminPanel = () => {
                 onClick={() => setSelectedItem(null)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedFlag ? (
+        <div className="admin-modal-backdrop" role="presentation">
+          <div className="admin-modal admin-modal-item" role="dialog" aria-modal="true" aria-label="Report details">
+            <div className="admin-modal-header">
+              <div>
+                <p className="admin-modal-kicker">Report Details</p>
+                <h3>{selectedFlag.reason}</h3>
+              </div>
+              <div className="admin-item-badges">
+                <span className={`admin-review admin-review-${selectedFlag.rawSeverity.toLowerCase()}`}>
+                  {selectedFlag.severity}
+                </span>
+                <span className={`admin-review admin-review-${selectedFlag.rawStatus.toLowerCase()}`}>
+                  {selectedFlag.status}
+                </span>
+              </div>
+            </div>
+            <label className="admin-modal-field">
+              Report Details
+              <textarea value={selectedFlag.body || selectedFlag.target} readOnly rows={3} />
+            </label>
+            {selectedFlag.itemDetails ? (
+              <>
+                <div className="admin-modal-header" style={{ marginTop: "16px" }}>
+                  <div>
+                    <p className="admin-modal-kicker">Related Item</p>
+                    <h3>{selectedFlag.itemDetails.name}</h3>
+                  </div>
+                  <div className="admin-item-badges">
+                    <span className={`admin-status admin-status-${selectedFlag.itemDetails.typeLabel.toLowerCase()}`}>
+                      {selectedFlag.itemDetails.typeLabel}
+                    </span>
+                    <span className="admin-review">{selectedFlag.itemDetails.lifecycleStatus}</span>
+                  </div>
+                </div>
+                <div className="admin-modal-image-wrap">
+                  <img src={selectedFlag.itemDetails.image} alt={selectedFlag.itemDetails.name} className="admin-modal-image" />
+                  <a
+                    href={selectedFlag.itemDetails.image}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="admin-modal-image-expand"
+                    title="View full-size image"
+                    aria-label="View full-size image"
+                  >
+                    <FontAwesomeIcon icon={faMagnifyingGlassPlus} />
+                  </a>
+                </div>
+                <div className="admin-item-modal-grid">
+                  <article className="admin-item-fact"><span>ID</span><strong>{selectedFlag.itemDetails.id}</strong></article>
+                  <article className="admin-item-fact"><span>Category</span><strong>{selectedFlag.itemDetails.category}</strong></article>
+                  <article className="admin-item-fact"><span>Date</span><strong>{selectedFlag.itemDetails.date}</strong></article>
+                  <article className="admin-item-fact"><span>Location</span><strong>{selectedFlag.itemDetails.location}</strong></article>
+                  <article className="admin-item-fact"><span>Color</span><strong>{selectedFlag.itemDetails.color}</strong></article>
+                  <article className="admin-item-fact"><span>Brand</span><strong>{selectedFlag.itemDetails.brand}</strong></article>
+                  <article className="admin-item-fact"><span>Identifiers</span><strong>{selectedFlag.itemDetails.identifiers}</strong></article>
+                  <article className="admin-item-fact"><span>Contact</span><strong>{selectedFlag.itemDetails.contactMethod} - {selectedFlag.itemDetails.contactValue}</strong></article>
+                </div>
+                <label className="admin-modal-field">
+                  Item Description
+                  <textarea value={selectedFlag.itemDetails.description} readOnly rows={4} />
+                </label>
+              </>
+            ) : null}
+            <div className="admin-modal-actions">
+              <button
+                type="button"
+                className="admin-action"
+                onClick={() => setSelectedFlag(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {warnUserFlag ? (
+        <div className="admin-modal-backdrop" role="presentation">
+          <div className="admin-modal" role="dialog" aria-modal="true" aria-label="Send user warning">
+            <h3>Send User Warning</h3>
+            <label className="admin-modal-field">
+              Report Reason: <strong>{warnUserFlag.reason}</strong>
+            </label>
+            <label className="admin-modal-field">
+              Warning Template
+              <select
+                value={warningForm.templateType}
+                onChange={(event) =>
+                  setWarningForm((current) => ({ ...current, templateType: event.target.value }))
+                }
+                className="admin-filter-select"
+              >
+                <option value="generic">Generic Warning</option>
+                <option value="inappropriate">Inappropriate Content</option>
+                <option value="false_report">False Report</option>
+                <option value="spam">Spam/Abuse</option>
+                <option value="custom">Custom Message</option>
+              </select>
+            </label>
+            {warningForm.templateType === "custom" ? (
+              <label className="admin-modal-field">
+                Custom Message
+                <textarea
+                  value={warningForm.customMessage}
+                  onChange={(event) =>
+                    setWarningForm((current) => ({ ...current, customMessage: event.target.value }))
+                  }
+                  placeholder="Enter your warning message..."
+                  rows={4}
+                />
+              </label>
+            ) : null}
+            <div className="admin-modal-actions">
+              <button
+                type="button"
+                className="admin-action"
+                onClick={() => {
+                  setWarnUserFlag(null);
+                  setWarningForm({ templateType: "generic", customMessage: "" });
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="admin-action admin-action-approve"
+                onClick={async () => {
+                  try {
+                    await sendUserWarning(
+                      warnUserFlag.id,
+                      warnUserFlag.userId,
+                      warningForm.customMessage || warningForm.templateType,
+                      warnUserFlag.reason
+                    );
+                    await refreshPanel({ silent: true });
+                    showSnackbar("User warning sent and flag updated.");
+                    setWarnUserFlag(null);
+                    setWarningForm({ templateType: "generic", customMessage: "" });
+                  } catch (error) {
+                    showSnackbar(error?.message || "Failed to send warning.");
+                  }
+                }}
+              >
+                Send Warning
               </button>
             </div>
           </div>

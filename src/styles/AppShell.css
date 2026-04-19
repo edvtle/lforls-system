@@ -2328,6 +2328,14 @@ html[data-theme="light"] .match-card-action,
   color: #e8f6e2;
 }
 
+.details-action-secondary .details-icon-message {
+  color: #ffffff;
+}
+
+.details-action-button-contact-owner {
+  grid-column: 2;
+}
+
 .details-secondary-actions {
   display: flex;
   flex-wrap: wrap;
@@ -3861,6 +3869,7 @@ html[data-theme="light"] .report-crop-actions,
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .report-crop-backdrop,
   .report-crop-modal {
     animation: none;
@@ -4012,6 +4021,10 @@ html[data-theme="light"] .report-crop-actions,
   .details-thumbnails,
   .details-related-grid {
     grid-template-columns: 1fr;
+  }
+
+  .details-action-button-contact-owner {
+    grid-column: auto;
   }
 
   .details-reporter-head {

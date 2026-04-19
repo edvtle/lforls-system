@@ -119,9 +119,26 @@ const sanitizeFilename = (fileName = "file") =>
 const REPORT_FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1200&q=80";
 
+const isSchemaMismatchError = (error) => {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    error?.code === "PGRST205" ||
+    message.includes("could not find the table") ||
+    message.includes("could not find the column") ||
+    message.includes("relation") ||
+    message.includes("does not exist")
+  );
+};
+
 const toProfileReportCard = (item) => {
   const images = Array.isArray(item.item_images) ? item.item_images : [];
   const primary = images.find((entry) => entry.is_primary) || images[0];
+  const hasCustomCategory = Boolean(
+    item.custom_category && String(item.custom_category).trim(),
+  );
+  const categoryLabel = hasCustomCategory
+    ? "Others"
+    : item.category || "Others";
 
   const reportStatus =
     item.status === "claimed" || item.status === "resolved"
@@ -136,16 +153,41 @@ const toProfileReportCard = (item) => {
     source: "supabase",
     reportType: item.type,
     name: item.item_name || "Unnamed item",
-    category: item.category || "Others",
+    category: categoryLabel,
+    categoryDisplay: item.custom_category || item.category || "Others",
+    customCategory: item.custom_category || "",
     location: item.location_text || "Unknown",
+    locationText: item.location_text || "",
     image: primary?.public_url || REPORT_FALLBACK_IMAGE,
     reportStatus,
     matchPercent: Math.max(0, Math.min(100, Number(item.match_score || 0))),
     path: "/matches",
     description: item.description || "",
+    color: item.color || "",
+    brand: item.brand || "",
+    identifiers: item.identifiers || "",
+    custodyNote: item.custody_note || "",
+    contactMethod: item.contact_method || "Email",
+    contactValue: item.contact_value || "",
+    notifyOnMatch: Boolean(item.notify_on_match),
     createdAt: item.created_at || new Date().toISOString(),
   };
 };
+
+const richReportColumns =
+  "id, reporter_id, type, status, item_name, category, custom_category, location_text, description, color, brand, identifiers, custody_note, contact_method, contact_value, notify_on_match, match_score, created_at, item_images(public_url, is_primary)";
+
+const baseReportColumns =
+  "id, reporter_id, type, status, item_name, category, location_text, description, match_score, created_at, item_images(public_url, is_primary)";
+
+const loadUserReports = async (reporterId, columns, limit) =>
+  supabase
+    .from("items")
+    .select(columns)
+    .eq("reporter_id", reporterId)
+    .order("created_at", { ascending: false })
+    .limit(limit)
+    .then((result) => result);
 
 const assertSupabase = () => {
   if (!isSupabaseConfigured || !supabase) {
@@ -163,6 +205,7 @@ const buildItemPayload = ({
   color,
   brand,
   identifiers,
+  custodyNote,
   locationText,
   contactMethod,
   contactValue,
@@ -178,6 +221,7 @@ const buildItemPayload = ({
   color: color?.trim() || null,
   brand: brand?.trim() || null,
   identifiers: identifiers?.trim() || null,
+  custody_note: custodyNote?.trim() || null,
   location_text: locationText.trim() || null,
   date_reported: new Date().toISOString().slice(0, 10),
   date_lost_or_found: new Date().toISOString().slice(0, 10),
@@ -324,13 +368,34 @@ export const submitItemReport = async ({ reporterId, type, payload, file }) => {
     notifyOnMatch: payload.notifyOnMatch,
   });
 
-  const { data: createdItem, error: insertError } = await supabase
-    .from("items")
-    .insert(itemPayload)
-    .select(
-      "id, reporter_id, type, status, item_name, category, description, color, brand, identifiers, location_text, date_lost_or_found",
-    )
-    .single();
+  const baseItemPayload = {
+    reporter_id: itemPayload.reporter_id,
+    type: itemPayload.type,
+    status: itemPayload.status,
+    item_name: itemPayload.item_name,
+    category: itemPayload.category,
+    description: itemPayload.description,
+    location_text: itemPayload.location_text,
+    date_reported: itemPayload.date_reported,
+    date_lost_or_found: itemPayload.date_lost_or_found,
+  };
+
+  const createItem = async (nextPayload) =>
+    supabase
+      .from("items")
+      .insert(nextPayload)
+      .select(
+        "id, reporter_id, type, status, item_name, category, custom_category, description, color, brand, identifiers, custody_note, location_text, date_lost_or_found, contact_method, contact_value, notify_on_match",
+      )
+      .single();
+
+  let createResult = await createItem(itemPayload);
+
+  if (createResult.error && isSchemaMismatchError(createResult.error)) {
+    createResult = await createItem(baseItemPayload);
+  }
+
+  const { data: createdItem, error: insertError } = createResult;
 
   if (insertError) throw insertError;
 
@@ -355,18 +420,25 @@ export const submitItemReport = async ({ reporterId, type, payload, file }) => {
 export const listUserItemReports = async ({ reporterId, limit = 100 }) => {
   assertSupabase();
 
-  const { data, error } = await supabase
-    .from("items")
-    .select(
-      "id, reporter_id, type, status, item_name, category, location_text, description, match_score, created_at, item_images(public_url, is_primary)",
-    )
-    .eq("reporter_id", reporterId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const primaryResult = await loadUserReports(
+    reporterId,
+    richReportColumns,
+    limit,
+  );
+  const secondaryResult =
+    primaryResult.error && isSchemaMismatchError(primaryResult.error)
+      ? await loadUserReports(reporterId, baseReportColumns, limit)
+      : null;
+
+  const data = primaryResult.data || secondaryResult?.data || [];
+  const error =
+    primaryResult.error && !isSchemaMismatchError(primaryResult.error)
+      ? primaryResult.error
+      : secondaryResult?.error || null;
 
   if (error) throw error;
 
-  return (data || []).map(toProfileReportCard);
+  return data.map(toProfileReportCard);
 };
 
 export const updateItemReport = async ({ reporterId, itemId, payload }) => {
@@ -390,23 +462,92 @@ export const updateItemReport = async ({ reporterId, itemId, payload }) => {
     updates.item_name = payload.name.trim() || "Unnamed item";
   }
 
+  if (typeof payload.category === "string") {
+    updates.category = payload.category.trim() || "Others";
+  }
+
+  if (typeof payload.customCategory === "string") {
+    updates.custom_category = payload.customCategory.trim() || null;
+  }
+
   if (typeof payload.location === "string") {
     updates.location_text = payload.location.trim() || "Unknown";
+  }
+
+  if (typeof payload.description === "string") {
+    updates.description = payload.description.trim() || null;
+  }
+
+  if (typeof payload.color === "string") {
+    updates.color = payload.color.trim() || null;
+  }
+
+  if (typeof payload.brand === "string") {
+    updates.brand = payload.brand.trim() || null;
+  }
+
+  if (typeof payload.identifiers === "string") {
+    updates.identifiers = payload.identifiers.trim() || null;
+  }
+
+  if (typeof payload.custodyNote === "string") {
+    updates.custody_note = payload.custodyNote.trim() || null;
+  }
+
+  if (typeof payload.contactMethod === "string") {
+    updates.contact_method = payload.contactMethod.trim() || null;
+  }
+
+  if (typeof payload.contactValue === "string") {
+    updates.contact_value = payload.contactValue.trim() || null;
+  }
+
+  if (typeof payload.notifyOnMatch === "boolean") {
+    updates.notify_on_match = payload.notifyOnMatch;
   }
 
   if (nextType) {
     updates.type = nextType;
   }
 
-  const { data, error } = await supabase
-    .from("items")
-    .update(updates)
-    .eq("id", itemId)
-    .eq("reporter_id", reporterId)
-    .select(
-      "id, reporter_id, type, status, item_name, category, location_text, description, match_score, created_at, item_images(public_url, is_primary)",
-    )
-    .single();
+  const baseUpdates = {
+    status: updates.status,
+  };
+
+  if (typeof updates.item_name === "string") {
+    baseUpdates.item_name = updates.item_name;
+  }
+
+  if (typeof updates.location_text === "string") {
+    baseUpdates.location_text = updates.location_text;
+  }
+
+  if (typeof updates.category === "string") {
+    baseUpdates.category = updates.category;
+  }
+
+  if (typeof updates.type === "string") {
+    baseUpdates.type = updates.type;
+  }
+
+  const updateItem = async (nextUpdates) =>
+    supabase
+      .from("items")
+      .update(nextUpdates)
+      .eq("id", itemId)
+      .eq("reporter_id", reporterId)
+      .select(
+        "id, reporter_id, type, status, item_name, category, custom_category, location_text, description, color, brand, identifiers, custody_note, contact_method, contact_value, notify_on_match, match_score, created_at, item_images(public_url, is_primary)",
+      )
+      .single();
+
+  let updateResult = await updateItem(updates);
+
+  if (updateResult.error && isSchemaMismatchError(updateResult.error)) {
+    updateResult = await updateItem(baseUpdates);
+  }
+
+  const { data, error } = updateResult;
 
   if (error) throw error;
 
@@ -496,22 +637,24 @@ export const submitItemListingReport = async ({
     status: "open",
     body: safeDetails,
     user_id: reporterId || null,
+    item_id: itemId || null,
+    item_name: itemName || null,
   };
 
   const { error } = await supabase.from("reports").insert(fullPayload);
 
-  if (!error) {
-    return;
-  }
+  if (error) {
+    const message = String(error.message || "").toLowerCase();
+    if (
+      message.includes("could not find the table") ||
+      message.includes("relation") ||
+      message.includes("does not exist")
+    ) {
+      throw new Error(
+        "The reports table is missing from the database. Apply the latest migration and refresh the schema cache.",
+      );
+    }
 
-  const { error: fallbackError } = await supabase.from("reports").insert({
-    reason: safeReason,
-    target,
-    severity,
-    status: "open",
-  });
-
-  if (fallbackError) {
-    throw fallbackError;
+    throw error;
   }
 };

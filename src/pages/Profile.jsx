@@ -27,6 +27,28 @@ import { deleteUserReportById, getUserReports, reportsUpdatedEventName, updateUs
 import "../styles/Profile.css";
 
 const reportFilters = ["All", "Lost", "Found", "Claimed"];
+const reportCategoryOptions = ["Electronics", "Wallet", "Bag", "ID", "Clothing", "Others"];
+const reportContactMethodOptions = ["Email", "Phone"];
+
+const createReportDraft = (entry = {}) => {
+  const hasCustomCategory = Boolean(entry.customCategory || (entry.category === "Others" && entry.categoryDisplay));
+
+  return {
+    ...entry,
+    name: entry.name || "",
+    category: hasCustomCategory ? "Others" : entry.category || "",
+    customCategory: entry.customCategory || (hasCustomCategory ? entry.categoryDisplay || "" : ""),
+    locationText: entry.locationText || entry.location || "",
+    description: entry.description || "",
+    color: entry.color || "",
+    brand: entry.brand || "",
+    identifiers: entry.identifiers || "",
+    custodyNote: entry.custodyNote || "",
+    contactMethod: entry.contactMethod || "Email",
+    contactValue: entry.contactValue || "",
+    notifyOnMatch: Boolean(entry.notifyOnMatch),
+  };
+};
 
 const formatRelative = (isoDate) => {
   const then = new Date(isoDate).getTime();
@@ -52,6 +74,7 @@ const toLocalReportCard = (report) => ({
   source: "local",
   itemId: report.itemId || report.id,
   reportType: report.reportStatus === "Found" ? "found" : "lost",
+  categoryDisplay: report.categoryDisplay || report.category,
 });
 
 const Profile = () => {
@@ -67,8 +90,8 @@ const Profile = () => {
   const [accountProfile, setAccountProfile] = useState({
     name: "User Demo",
     email: "userdemo@example.com",
-    collegeDept: "College of Computer Studies",
-    programYear: "3B",
+    collegeDept: "",
+    programYear: "",
     program: "",
   });
   const [draftProfile, setDraftProfile] = useState(accountProfile);
@@ -139,8 +162,8 @@ const Profile = () => {
     const next = {
       name: authProfile.fullName || "User Demo",
       email: authProfile.email || "userdemo@example.com",
-      collegeDept: authProfile.collegeDept || "College of Computer Studies",
-      programYear: authProfile.programYear || "3B",
+      collegeDept: authProfile.collegeDept || "",
+      programYear: authProfile.programYear || "",
       program: authProfile.program || "",
     };
 
@@ -263,13 +286,13 @@ const Profile = () => {
   }, [reports]);
 
   const saveProfile = async () => {
-    if (!draftProfile.name.trim() || !draftProfile.email.trim() || !draftProfile.collegeDept.trim() || !draftProfile.programYear.trim()) {
-      showSnackbar("Complete name, email, college dept, and year/section.");
+    if (!draftProfile.name.trim() || !draftProfile.email.trim()) {
+      showSnackbar("Name and email are required.");
       return;
     }
 
-    if (!/^[1-9][A-Za-z]$/.test(draftProfile.programYear.trim())) {
-      showSnackbar("Year/Section must be in format like 3B.");
+    if (draftProfile.programYear.trim() && !/^[1-9][A-Za-z]$/.test(draftProfile.programYear.trim())) {
+      showSnackbar("Year/Section must be in format like 3B (or leave empty).");
       return;
     }
 
@@ -322,7 +345,17 @@ const Profile = () => {
           itemId: entry.itemId || entry.id,
           payload: {
             name: entry.name,
-            location: entry.location,
+            category: entry.category,
+            customCategory: entry.category === "Others" ? entry.customCategory : "",
+            location: entry.locationText,
+            description: entry.description,
+            color: entry.color,
+            brand: entry.brand,
+            identifiers: entry.identifiers,
+            custodyNote: entry.custodyNote,
+            contactMethod: entry.contactMethod,
+            contactValue: entry.contactValue,
+            notifyOnMatch: entry.notifyOnMatch,
             reportStatus: entry.reportStatus,
             status: entry.reportType === "found" ? "open" : "open",
           },
@@ -331,6 +364,7 @@ const Profile = () => {
         setReports((current) => current.map((item) => (item.id === entry.id ? updated : item)));
       } else {
         updateUserReportById(entry.id, entry);
+        setReports((current) => current.map((item) => (item.id === entry.id ? { ...item, ...entry } : item)));
       }
 
       setEditingReportId("");
@@ -402,7 +436,7 @@ const Profile = () => {
             <article key={entry.id} className="profile-report-card">
               <img src={entry.image} alt={entry.name} />
               <div className="profile-report-copy">
-                <p className="page-kicker">{entry.category}</p>
+                <p className="page-kicker">{entry.categoryDisplay || entry.category}</p>
                 <h4>{entry.name}</h4>
                 <span className={`profile-status profile-status-${entry.reportStatus.toLowerCase()}`}>{entry.reportStatus}</span>
 
@@ -416,7 +450,7 @@ const Profile = () => {
                     type="button"
                     className="profile-inline-btn"
                     onClick={() => {
-                      setEditingReportData({ ...entry });
+                      setEditingReportData(createReportDraft(entry));
                       setEditModalOpen(true);
                     }}
                   >
@@ -757,18 +791,190 @@ const Profile = () => {
                     </label>
 
                     <label className="details-form-field">
-                      <span>Location</span>
+                      <span>Category</span>
+                      <select
+                        value={editingReportData.category}
+                        onChange={(event) =>
+                          setEditingReportData((current) => {
+                            const nextCategory = event.target.value;
+                            return {
+                              ...current,
+                              category: nextCategory,
+                              customCategory: nextCategory === "Others" ? current.customCategory : "",
+                            };
+                          })
+                        }
+                        required
+                      >
+                        <option value="">Select category</option>
+                        {reportCategoryOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  {editingReportData.category === "Others" ? (
+                    <label className="details-form-field">
+                      <span>Custom Category</span>
                       <input
                         type="text"
-                        value={editingReportData.location}
+                        value={editingReportData.customCategory}
                         onChange={(event) =>
                           setEditingReportData((current) => ({
                             ...current,
-                            location: event.target.value,
+                            customCategory: event.target.value,
                           }))
                         }
                         required
                       />
+                    </label>
+                  ) : null}
+
+                  <label className="details-form-field">
+                    <span>Location</span>
+                    <input
+                      type="text"
+                      value={editingReportData.locationText}
+                      onChange={(event) =>
+                        setEditingReportData((current) => ({
+                          ...current,
+                          locationText: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+
+                  <label className="details-form-field">
+                    <span>Description</span>
+                    <textarea
+                      value={editingReportData.description}
+                      onChange={(event) =>
+                        setEditingReportData((current) => ({
+                          ...current,
+                          description: event.target.value,
+                        }))
+                      }
+                      rows={4}
+                      required
+                    />
+                  </label>
+
+                  <div className="details-form-grid">
+                    <label className="details-form-field">
+                      <span>Color</span>
+                      <input
+                        type="text"
+                        value={editingReportData.color}
+                        onChange={(event) =>
+                          setEditingReportData((current) => ({
+                            ...current,
+                            color: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+
+                    <label className="details-form-field">
+                      <span>Brand</span>
+                      <input
+                        type="text"
+                        value={editingReportData.brand}
+                        onChange={(event) =>
+                          setEditingReportData((current) => ({
+                            ...current,
+                            brand: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+
+                  <label className="details-form-field">
+                    <span>Unique Identifiers</span>
+                    <textarea
+                      value={editingReportData.identifiers}
+                      onChange={(event) =>
+                        setEditingReportData((current) => ({
+                          ...current,
+                          identifiers: event.target.value,
+                        }))
+                      }
+                      rows={3}
+                    />
+                  </label>
+
+                  {editingReportData.reportType === "found" ? (
+                    <label className="details-form-field">
+                      <span>Current custody note</span>
+                      <input
+                        type="text"
+                        value={editingReportData.custodyNote}
+                        onChange={(event) =>
+                          setEditingReportData((current) => ({
+                            ...current,
+                            custodyNote: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  ) : null}
+
+                  <div className="details-form-grid">
+                    <label className="details-form-field">
+                      <span>Contact method</span>
+                      <select
+                        value={editingReportData.contactMethod}
+                        onChange={(event) =>
+                          setEditingReportData((current) => ({
+                            ...current,
+                            contactMethod: event.target.value,
+                          }))
+                        }
+                        required
+                      >
+                        {reportContactMethodOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="details-form-field">
+                      <span>Contact value</span>
+                      <input
+                        type={editingReportData.contactMethod === "Email" ? "email" : "tel"}
+                        value={editingReportData.contactValue}
+                        onChange={(event) =>
+                          setEditingReportData((current) => ({
+                            ...current,
+                            contactValue: event.target.value,
+                          }))
+                        }
+                        required
+                      />
+                    </label>
+                  </div>
+
+                  <div className="details-form-field profile-notify-field">
+                    <label className="profile-notify-toggle" htmlFor="profile-notify-on-match">
+                      <input
+                        id="profile-notify-on-match"
+                        className="profile-notify-checkbox"
+                        type="checkbox"
+                        checked={editingReportData.notifyOnMatch}
+                        onChange={(event) =>
+                          setEditingReportData((current) => ({
+                            ...current,
+                            notifyOnMatch: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Notify on match / owner alerts</span>
                     </label>
                   </div>
 

@@ -254,6 +254,111 @@ const resetPassword = async (email, resetToken, newPassword) => {
   return { ok: true };
 };
 
+const deleteUserAccount = async (userId) => {
+  if (!userId) {
+    return { ok: false, message: "User ID is required." };
+  }
+  try {
+    await db.query("begin");
+
+    // Delete auth row first; profile row is removed by trigger.
+    const authDeleteResult = await db.query(
+      `delete from auth.users where id = $1`,
+      [userId],
+    );
+
+    await db.query("commit");
+
+    if (!authDeleteResult.rowCount) {
+      return { ok: false, message: "User account not found in auth.users." };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    await db.query("rollback");
+    return { ok: false, message: error?.message || "Unable to delete user." };
+  }
+};
+
+const listAdminUsers = async () => {
+  const { rows } = await db.query(`
+    select
+      u.id,
+      coalesce(nullif(p.full_name, ''), nullif(u.raw_user_meta_data->>'full_name', ''), split_part(u.email, '@', 1), 'Unnamed user') as full_name,
+      coalesce(p.email, u.email, '') as email,
+      coalesce(nullif(p.college_dept, ''), 'N/A') as college_dept,
+      coalesce(nullif(p.year_section, ''), 'N/A') as year_section,
+      coalesce(nullif(p.status, ''), 'active') as status,
+      coalesce(i.items_count, 0) as reports_count
+    from auth.users u
+    left join public.profiles p on p.id = u.id
+    left join (
+      select reporter_id, count(*)::int as items_count
+      from public.items
+      group by reporter_id
+    ) i on i.reporter_id = u.id
+    order by lower(coalesce(nullif(p.full_name, ''), nullif(u.email, ''), 'zzz')) asc
+    limit 500
+  `);
+
+  return rows;
+};
+
+const purgeOrphanAuthUserByEmail = async (email) => {
+  if (!email) {
+    return { ok: false, message: "Email is required." };
+  }
+
+  try {
+    const { rows: authRows } = await db.query(
+      `
+        select id
+        from auth.users
+        where lower(email) = $1
+        limit 1
+      `,
+      [email],
+    );
+
+    const authUserId = authRows[0]?.id;
+    if (!authUserId) {
+      return { ok: true, purged: false };
+    }
+
+    const { rows: profileRows } = await db.query(
+      `
+        select id
+        from public.profiles
+        where id = $1
+        limit 1
+      `,
+      [authUserId],
+    );
+
+    if (profileRows.length > 0) {
+      return {
+        ok: false,
+        message: "User already exists in auth and profile records.",
+      };
+    }
+
+    await db.query("begin");
+    await db.query(`delete from public.password_reset_codes where email = $1`, [
+      email,
+    ]);
+    await db.query(`delete from auth.users where id = $1`, [authUserId]);
+    await db.query("commit");
+
+    return { ok: true, purged: true };
+  } catch (error) {
+    await db.query("rollback");
+    return {
+      ok: false,
+      message: error?.message || "Unable to purge orphan auth user.",
+    };
+  }
+};
+
 const handler = async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
@@ -348,6 +453,46 @@ const handler = async (req, res) => {
       }
 
       json(res, 200, { success: true });
+      return;
+    }
+
+    if (req.url === "/api/admin/delete-user") {
+      const userId = String(body?.userId || "").trim();
+      if (!userId) {
+        json(res, 400, { error: "userId is required." });
+        return;
+      }
+
+      const result = await deleteUserAccount(userId);
+      if (!result.ok) {
+        json(res, 400, { error: result.message });
+        return;
+      }
+
+      json(res, 200, { success: true });
+      return;
+    }
+
+    if (req.url === "/api/admin/purge-orphan-auth-user") {
+      const email = normalizeEmail(body?.email);
+      if (!email) {
+        json(res, 400, { error: "Email is required." });
+        return;
+      }
+
+      const result = await purgeOrphanAuthUserByEmail(email);
+      if (!result.ok) {
+        json(res, 409, { error: result.message });
+        return;
+      }
+
+      json(res, 200, { success: true, purged: Boolean(result.purged) });
+      return;
+    }
+
+    if (req.url === "/api/admin/list-users") {
+      const users = await listAdminUsers();
+      json(res, 200, { users });
       return;
     }
 

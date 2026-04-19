@@ -183,7 +183,7 @@
   border: 1px solid rgba(93, 214, 44, 0.14);
 }
 
-.profile-stats-card > div {
+.profile-stats-card>div {
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 0.9rem;
   padding: 0.72rem 0.8rem;
@@ -298,7 +298,7 @@
   justify-content: start;
 }
 
-.profile-report-grid > .profile-report-card {
+.profile-report-grid>.profile-report-card {
   width: 100%;
 }
 
@@ -592,7 +592,7 @@
 .profile-page.profile-theme-light .profile-chip,
 .profile-page.profile-theme-light .profile-theme-btn,
 .profile-page.profile-theme-light .profile-simple-list li,
-.profile-page.profile-theme-light .profile-stats-card > div,
+.profile-page.profile-theme-light .profile-stats-card>div,
 .profile-page.profile-theme-light .profile-report-card,
 .profile-page.profile-theme-light .profile-preferences label {
   background: #ffffff;
@@ -756,6 +756,30 @@
 .profile-page.profile-theme-light .profile-settings-grid label,
 .profile-page.profile-theme-light .profile-settings-field {
   color: #5d5d5d;
+}
+
+.profile-notify-field {
+  padding: 0.72rem;
+  border-radius: 0.92rem;
+  border: 1px solid rgba(93, 214, 44, 0.12);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+}
+
+.profile-notify-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: #dbead5;
+  font-weight: 700;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.profile-notify-checkbox {
+  width: 1.02rem;
+  height: 1.02rem;
+  accent-color: #74da45;
+  flex-shrink: 0;
 }
 
 .profile-page.profile-theme-light .profile-header-meta-item strong,
