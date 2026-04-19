@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -26,6 +26,7 @@ import {
 import { createClaim } from "../utils/claimStore";
 import { createNotification } from "../utils/notificationStore";
 import { useAuth } from "../context/AuthContext";
+import "../styles/Messages.css";
 
 const formatTime = (isoDate) => {
   const date = new Date(isoDate);
@@ -55,6 +56,7 @@ const Messages = () => {
   });
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
   const [menuConversationId, setMenuConversationId] = useState("");
+  const menuWrapRef = useRef(null);
 
   const showSnackbar = (message) => {
     setSnackbar({ visible: true, message });
@@ -145,6 +147,40 @@ const Messages = () => {
     const timer = setTimeout(() => setSnackbar({ visible: false, message: "" }), 2600);
     return () => clearTimeout(timer);
   }, [snackbar.visible]);
+
+  useEffect(() => {
+    if (!menuConversationId) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      const menuRoot = menuWrapRef.current?.querySelector(
+        `[data-conversation-menu-id="${menuConversationId}"]`
+      );
+
+      if (!menuRoot) {
+        return;
+      }
+
+      if (!menuRoot.contains(event.target)) {
+        setMenuConversationId("");
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setMenuConversationId("");
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [menuConversationId]);
 
   const activeConversation = useMemo(
     () => conversations.find((entry) => entry.id === activeId) || conversations[0],
@@ -394,7 +430,7 @@ const Messages = () => {
             />
           </label>
 
-          <ul className="messages-conversation-list">
+          <ul className="messages-conversation-list" ref={menuWrapRef}>
             {loading ? (
               <li>
                 <p>Loading conversations...</p>
@@ -417,29 +453,35 @@ const Messages = () => {
                     {entry.unreadCount ? <em>{entry.unreadCount}</em> : null}
                   </button>
 
-                  <div className="messages-conversation-menu-wrap">
+                  <div className="messages-conversation-menu-wrap" data-conversation-menu-id={entry.id}>
                     <button
                       type="button"
                       className="messages-conversation-menu-trigger"
+                      aria-haspopup="menu"
+                      aria-expanded={menuConversationId === entry.id}
                       aria-label="Conversation actions"
-                      onClick={() =>
+                      onClick={(event) => {
+                        event.stopPropagation();
                         setMenuConversationId((current) =>
                           current === entry.id ? "" : entry.id,
-                        )
-                      }
+                        );
+                      }}
                     >
                       <FontAwesomeIcon icon={faEllipsisVertical} />
                     </button>
                     {menuConversationId === entry.id ? (
-                      <div className="messages-conversation-menu">
+                      <div className="messages-conversation-menu" role="menu" aria-label="Conversation actions menu">
                         <button
                           type="button"
+                          role="menuitem"
                           onClick={() => handleArchiveConversation(entry.id)}
                         >
                           <FontAwesomeIcon icon={faBoxArchive} /> Archive
                         </button>
                         <button
                           type="button"
+                          role="menuitem"
+                          className="messages-conversation-menu-danger"
                           onClick={() => handleDeleteConversation(entry.id)}
                         >
                           <FontAwesomeIcon icon={faTrashCan} /> Delete

@@ -742,8 +742,8 @@ const Profile = () => {
               setEditingReportData(null);
             }}
             ariaLabel="Edit report"
-            overlayClassName="details-flow-modal"
-            panelClassName="details-flow-panel"
+            overlayClassName="details-flow-modal profile-edit-modal"
+            panelClassName="details-flow-panel profile-edit-panel"
           >
             {editingReportData && (
               <>
@@ -752,6 +752,10 @@ const Profile = () => {
                     <p className="page-kicker">Manage Report</p>
                     <h3 className="page-title">Edit Report Details</h3>
                     <p className="details-flow-note">Update the information for this report.</p>
+                    <div className="profile-edit-modal-meta" aria-hidden="true">
+                      <span>{editingReportData.reportStatus} Report</span>
+                      <span>{editingReportData.reportType === "found" ? "Found item" : "Lost item"}</span>
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -767,7 +771,7 @@ const Profile = () => {
                 </div>
 
                 <form
-                  className="details-flow-form"
+                  className="details-flow-form profile-edit-form"
                   onSubmit={(event) => {
                     event.preventDefault();
                     saveReportChanges(editingReportData);
@@ -1000,7 +1004,7 @@ const Profile = () => {
                     </select>
                   </label>
 
-                  <div className="details-flow-actions">
+                  <div className="details-flow-actions profile-edit-actions">
                     <button
                       type="button"
                       className="details-ghost-button"
