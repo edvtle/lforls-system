@@ -8,116 +8,42 @@ This document explains the system structure, the system flow, and the planned ma
 
 ```mermaid
 flowchart LR
-   subgraph Client["Client Layer"]
-      A[Browser]
-      B[React + Vite Frontend]
-      C[AuthContext and AppRouter]
-      D[User Pages]
-      E[Admin Panel]
+   User["👤 User"]
+   InputDev["Input Devices<br/>(Keyboard, Camera)"]
+
+   subgraph GroupA["Group A: Presentation & Routing"]
+      UserModel["User Model<br/>(Profile, Preferences)"]
+      AuthContext["Authentication Model<br/>(Session, Role)"]
+      AppRouter["App Router<br/>(Route Decision)"]
    end
 
-   subgraph Services["Application Service Layer"]
-      F[authService]
-      G[itemsService]
-      H[reportingService]
-      I[adminService]
-      J[messaging and notification services]
-      K[matching.js]
+   subgraph GroupB["Group B: Processing & Services"]
+      ProcessLayer["Data Processing Layer"]
+      ServiceLayer["Service Layer<br/>(Auth, Items, Reporting,<br/>Matching, Admin)"]
+      MessageLayer["Communication Layer<br/>(Messaging, Notifications)"]
    end
 
-   subgraph Backend["Backend and Platform Layer"]
-      L[Supabase Auth]
-      M[Supabase Postgres]
-      N[Supabase Storage]
-      O[Password Reset Server]
+   subgraph GroupC["Group C: Backend Infrastructure"]
+      SupabaseAuth["Supabase Auth"]
+      SupabaseDB["Supabase Postgres"]
+      SupabaseStorage["Supabase Storage"]
+      ResetServer["Password Reset Server"]
    end
 
-   A --> B
-   B --> C
-   C --> D
-   C --> E
+   Application["🔧 Application<br/>(React + Vite<br/>Frontend)"]
+   OutputDev["Output Devices<br/>(Display, Notifications)"]
 
-   D --> F
-   D --> G
-   D --> H
-   D --> J
-   D --> K
+   User --> InputDev
+   InputDev --> Application
+   Application --> GroupA
+   GroupA --> GroupB
+   GroupB --> GroupC
 
-   E --> I
-   E --> G
-   E --> J
-
-   F --> L
-   F --> O
-   G --> M
-   H --> M
-   H --> N
-   I --> M
-   J --> M
-   K --> M
-```
-
-### 1.2 Route and Module View
-
-```mermaid
-flowchart TB
-   A([1. Browser opens the app]) --> B([2. React + Vite app loads])
-   B --> C([3. AuthProvider checks session and profile])
-   C --> D{4. Is the user logged in?}
-
-   D -- No --> E[[5. Public Auth Area]]
-   E --> E1([Sign in])
-   E --> E2([Sign up])
-   E --> E3([Reset password])
-   E1 --> F[(authService)]
-   E2 --> F
-   E3 --> F
-
-   D -- Yes --> G{5. Role decision}
-   G -- Admin --> H[[Admin Area]]
-   G -- User --> I[[User Area]]
-
-   I --> J[/MainLayout/]
-   J --> K([Home])
-   J --> L([Browse Items])
-   J --> M([Item Details])
-   J --> N([Report Lost Item])
-   J --> O([Report Found Item])
-   J --> P([Matches])
-   J --> Q([Messages])
-   J --> R([Notifications])
-   J --> S([Profile])
-
-   H --> T([Admin Dashboard])
-   H --> U([Manage Items])
-   H --> V([Manage Users])
-   H --> W([Claims Review])
-   H --> X([Flags and Reports])
-
-   K --> Y[(itemsService)]
-   L --> Y
-   M --> Y
-   N --> Z[(reportingService)]
-   O --> Z
-   P --> AA[(matching.js)]
-   Q --> AB[(messaging store or service)]
-   R --> AC[(notification store or service)]
-   T --> AD[(adminService)]
-   U --> AD
-   V --> AD
-   W --> AD
-   X --> AD
-
-   F --> AE[(Supabase Auth)]
-   Y --> AF[(Supabase Postgres)]
-   Z --> AF
-   AA --> AF
-   AB --> AF
-   AC --> AF
-   AD --> AF
-
-   Z --> AG[(Supabase Storage for images)]
-   F --> AH[(Password reset server)]
+   GroupC -.->|Data Response| GroupB
+   GroupB -.->|Processed Data| GroupA
+   GroupA -.->|Render State| Application
+   Application --> OutputDev
+   OutputDev --> User
 ```
 
 ### What this means
