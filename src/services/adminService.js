@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import { itemsUpdatedEventName } from "../utils/itemStore";
+import { createNotification } from "../utils/notificationStore";
 
 const resetApiBaseUrl =
   import.meta.env.VITE_RESET_API_BASE_URL || "http://localhost:4001";
@@ -526,7 +527,46 @@ export const deleteAdminUser = async (userId) => {
   return body;
 };
 
-export const sendUserWarning = async (flagId, userId, message, reason) => {
+const buildWarningBody = ({
+  templateType,
+  customMessage,
+  reason,
+  itemName,
+}) => {
+  const subject = itemName || "this listing";
+  const issue = reason || "the reported content";
+
+  if (templateType === "custom") {
+    const trimmed = String(customMessage || "").trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  if (templateType === "inappropriate") {
+    return `Your report for ${subject} has been reviewed and a warning was issued for inappropriate content. Please update the listing to meet the community standards.`;
+  }
+
+  if (templateType === "false_report") {
+    return `Your report for ${subject} has been reviewed. A warning was issued because the submission may be inaccurate. Please verify the details before posting again.`;
+  }
+
+  if (templateType === "spam") {
+    return `Your report for ${subject} has been reviewed and a warning was issued for spam or abusive activity. Please keep future submissions clear and relevant.`;
+  }
+
+  return `Your report for ${subject} has been reviewed. A warning was issued based on ${issue}. Please review the listing details and make any needed corrections.`;
+};
+
+export const sendUserWarning = async ({
+  flagId,
+  userId,
+  itemId,
+  itemName,
+  templateType,
+  customMessage,
+  reason,
+}) => {
   assertSupabase();
 
   const { error } = await supabase
@@ -536,6 +576,19 @@ export const sendUserWarning = async (flagId, userId, message, reason) => {
 
   if (error) {
     throw error;
+  }
+
+  if (userId) {
+    createNotification({
+      type: "moderation",
+      priority: "high",
+      title: `Warning issued for ${itemName || "your report"}`,
+      body: buildWarningBody({ templateType, customMessage, reason, itemName }),
+      path: itemId ? `/details/${itemId}` : "/notifications",
+      recipientId: userId,
+      senderName: "Admin",
+      senderId: "admin",
+    });
   }
 
   return { success: true };

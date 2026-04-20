@@ -412,6 +412,7 @@ const Details = () => {
         title: "Claim verification submitted",
         body: "Claim submitted. Waiting for approval.",
         path: "/admin",
+        recipientId: currentUserId,
       });
 
       setSubmissionStatus("Claim submitted. Waiting for approval.");

@@ -329,6 +329,7 @@ const Messages = () => {
       title: "Claim verification submitted",
       body: "Claim submitted. Waiting for approval.",
       path: "/messages",
+      recipientId: currentUserId,
     });
 
     showSnackbar("Claim submitted. Waiting for approval.");
@@ -357,6 +358,7 @@ const Messages = () => {
         title: "User reported",
         body: "Your safety report was submitted to admin for review.",
         path: "/messages",
+        recipientId: currentUserId,
       });
       await refreshConversations();
       showSnackbar("Report sent to admin.");

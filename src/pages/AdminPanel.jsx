@@ -1403,10 +1403,15 @@ const AdminPanel = () => {
                 onClick={async () => {
                   try {
                     await sendUserWarning(
-                      warnUserFlag.id,
-                      warnUserFlag.userId,
-                      warningForm.customMessage || warningForm.templateType,
-                      warnUserFlag.reason
+                      {
+                        flagId: warnUserFlag.id,
+                        userId: warnUserFlag.userId,
+                        itemId: warnUserFlag.itemDetails?.id || warnUserFlag.itemId || "",
+                        itemName: warnUserFlag.itemDetails?.name || warnUserFlag.itemName || warnUserFlag.target,
+                        templateType: warningForm.templateType,
+                        customMessage: warningForm.customMessage,
+                        reason: warnUserFlag.reason,
+                      }
                     );
                     await refreshPanel({ silent: true });
                     showSnackbar("User warning sent and flag updated.");

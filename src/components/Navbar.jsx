@@ -19,20 +19,20 @@ const Navbar = () => {
   const currentUserId = profile?.id || null;
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(() => getUnreadCount());
+  const [unreadCount, setUnreadCount] = useState(() => getUnreadCount(currentUserId));
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
-  const [notifications, setNotifications] = useState(() => getNotifications().slice(0, 6));
+  const [notifications, setNotifications] = useState(() => getNotifications(currentUserId).slice(0, 6));
   const dropdownRef = useRef(null);
 
   useEffect(() => {
     const refresh = () => {
-      setUnreadCount(getUnreadCount());
-      setNotifications(getNotifications().slice(0, 6));
+      setUnreadCount(getUnreadCount(currentUserId));
+      setNotifications(getNotifications(currentUserId).slice(0, 6));
     };
 
     window.addEventListener("lforls:notifications-updated", refresh);
     return () => window.removeEventListener("lforls:notifications-updated", refresh);
-  }, []);
+  }, [currentUserId]);
 
   useEffect(() => {
     const refreshUnreadMessages = async () => {

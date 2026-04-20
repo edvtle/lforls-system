@@ -1,6 +1,19 @@
 const STORAGE_KEY = "lforls:notifications";
 
-const byTimeDesc = (left, right) => new Date(right.time).getTime() - new Date(left.time).getTime();
+const byTimeDesc = (left, right) =>
+  new Date(right.time).getTime() - new Date(left.time).getTime();
+
+const matchesRecipient = (entry, userId) => {
+  if (!userId) {
+    return true;
+  }
+
+  if (!entry?.recipientId) {
+    return true;
+  }
+
+  return String(entry.recipientId) === String(userId);
+};
 
 const readRaw = () => {
   try {
@@ -15,9 +28,13 @@ const writeRaw = (entries) => {
   window.dispatchEvent(new Event("lforls:notifications-updated"));
 };
 
-export const getNotifications = () => readRaw().sort(byTimeDesc);
+export const getNotifications = (userId = null) =>
+  readRaw()
+    .filter((entry) => matchesRecipient(entry, userId))
+    .sort(byTimeDesc);
 
-export const getUnreadCount = () => getNotifications().filter((entry) => !entry.read).length;
+export const getUnreadCount = (userId = null) =>
+  getNotifications(userId).filter((entry) => !entry.read).length;
 
 export const createNotification = ({
   type = "system",
@@ -25,6 +42,9 @@ export const createNotification = ({
   body,
   priority = "normal",
   path = "/notifications",
+  recipientId = null,
+  senderName = "",
+  senderId = "",
 }) => {
   const entry = {
     id: `n-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`,
@@ -33,6 +53,9 @@ export const createNotification = ({
     body,
     priority,
     path,
+    recipientId: recipientId || null,
+    senderName,
+    senderId,
     read: false,
     time: new Date().toISOString(),
   };
@@ -43,16 +66,26 @@ export const createNotification = ({
 };
 
 export const markNotificationRead = (id) => {
-  const next = readRaw().map((entry) => (entry.id === id ? { ...entry, read: true } : entry));
+  const next = readRaw().map((entry) =>
+    entry.id === id ? { ...entry, read: true } : entry,
+  );
   writeRaw(next);
 };
 
 export const setNotificationReadStatus = (id, read) => {
-  const next = readRaw().map((entry) => (entry.id === id ? { ...entry, read: Boolean(read) } : entry));
+  const next = readRaw().map((entry) =>
+    entry.id === id ? { ...entry, read: Boolean(read) } : entry,
+  );
   writeRaw(next);
 };
 
-export const markAllNotificationsRead = () => {
-  const next = readRaw().map((entry) => ({ ...entry, read: true }));
+export const markAllNotificationsRead = (userId = null) => {
+  const next = readRaw().map((entry) => {
+    if (!matchesRecipient(entry, userId)) {
+      return entry;
+    }
+
+    return { ...entry, read: true };
+  });
   writeRaw(next);
 };

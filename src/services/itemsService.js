@@ -98,6 +98,37 @@ const applySearch = (query, search) => {
   );
 };
 
+const normalizeReporter = (row = {}) => ({
+  name: row.full_name || "Unknown reporter",
+  email: row.email || "",
+  department: row.college_dept || "Not provided",
+  program: row.program || "Not provided",
+  yearSection: row.year_section || "Not provided",
+});
+
+const fetchReporterDirectory = async (reporterIds = []) => {
+  if (!reporterIds.length) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase.rpc("list_item_reporters", {
+    reporter_ids: reporterIds,
+  });
+
+  if (error) {
+    return null;
+  }
+
+  const map = new Map();
+  (data || []).forEach((row) => {
+    if (row?.id) {
+      map.set(row.id, normalizeReporter(row));
+    }
+  });
+
+  return map;
+};
+
 export const listRecentItems = async ({
   search = "",
   category = "All Categories",
@@ -154,9 +185,10 @@ export const listRecentItems = async ({
   const reporterIds = [
     ...new Set(rows.map((item) => item.reporter_id).filter(Boolean)),
   ];
-  const reporterMap = new Map();
+  let reporterMap = await fetchReporterDirectory(reporterIds);
 
-  if (reporterIds.length) {
+  if (reporterMap === null && reporterIds.length) {
+    reporterMap = new Map();
     const { data: profiles, error: profilesError } = await supabase
       .from("profiles")
       .select("id, full_name, email, college_dept, program, year_section")
@@ -167,14 +199,12 @@ export const listRecentItems = async ({
     }
 
     (profiles || []).forEach((profile) => {
-      reporterMap.set(profile.id, {
-        name: profile.full_name || "Unknown reporter",
-        email: profile.email || "",
-        department: profile.college_dept || "Not provided",
-        program: profile.program || "Not provided",
-        yearSection: profile.year_section || "Not provided",
-      });
+      reporterMap.set(profile.id, normalizeReporter(profile));
     });
+  }
+
+  if (!reporterMap) {
+    reporterMap = new Map();
   }
 
   return rows.map((item) => {
@@ -227,24 +257,23 @@ export const getItemById = async (itemId) => {
   let reporter = null;
 
   if (data.reporter_id) {
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("id, full_name, email, college_dept, program, year_section")
-      .eq("id", data.reporter_id)
-      .maybeSingle();
+    const directory = await fetchReporterDirectory([data.reporter_id]);
+    reporter = directory?.get(data.reporter_id) || null;
 
-    if (profileError) {
-      throw profileError;
-    }
+    if (!reporter) {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, college_dept, program, year_section")
+        .eq("id", data.reporter_id)
+        .maybeSingle();
 
-    if (profile) {
-      reporter = {
-        name: profile.full_name || "Unknown reporter",
-        email: profile.email || "",
-        department: profile.college_dept || "Not provided",
-        program: profile.program || "Not provided",
-        yearSection: profile.year_section || "Not provided",
-      };
+      if (profileError) {
+        throw profileError;
+      }
+
+      if (profile) {
+        reporter = normalizeReporter(profile);
+      }
     }
   }
 

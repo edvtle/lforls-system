@@ -443,7 +443,7 @@ const Profile = () => {
                 <p className="profile-report-meta">{entry.location} • {formatRelative(entry.createdAt)}</p>
 
                 <div className="profile-card-actions">
-                  <Link to={entry.path || `/details/${entry.id}`} className="hero-button hero-button-lost">
+                  <Link to={`/details/${entry.itemId || entry.id}`} className="hero-button hero-button-lost">
                     View
                   </Link>
                   <button

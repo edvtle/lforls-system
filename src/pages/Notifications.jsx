@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBell, faCheckDouble, faClock, faFilter } from "@fortawesome/free-solid-svg-icons";
+import { useAuth } from "../context/AuthContext";
 import {
   getNotifications,
   markAllNotificationsRead,
@@ -24,16 +25,23 @@ const formatRelativeTime = (isoDate) => {
   return `${days}d ago`;
 };
 
+const formatNotificationType = (value) =>
+  String(value || "system")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
 const Notifications = () => {
   const navigate = useNavigate();
+  const { profile } = useAuth();
+  const currentUserId = profile?.id || null;
   const [activeTab, setActiveTab] = useState("all");
-  const [notifications, setNotifications] = useState(() => getNotifications());
+  const [notifications, setNotifications] = useState(() => getNotifications(currentUserId));
 
   useEffect(() => {
-    const refresh = () => setNotifications(getNotifications());
+    const refresh = () => setNotifications(getNotifications(currentUserId));
     window.addEventListener("lforls:notifications-updated", refresh);
     return () => window.removeEventListener("lforls:notifications-updated", refresh);
-  }, []);
+  }, [currentUserId]);
 
   const filteredNotifications = useMemo(() => {
     if (activeTab === "unread") {
@@ -89,8 +97,8 @@ const Notifications = () => {
           type="button"
           className="notification-mark-all"
           onClick={() => {
-            markAllNotificationsRead();
-            setNotifications(getNotifications());
+            markAllNotificationsRead(currentUserId);
+            setNotifications(getNotifications(currentUserId));
           }}
         >
           <FontAwesomeIcon icon={faCheckDouble} /> Mark all read
@@ -110,7 +118,7 @@ const Notifications = () => {
                 </p>
                 <p className="notification-copy">{entry.body}</p>
                 <p className="notification-time">
-                  <FontAwesomeIcon icon={faClock} /> {formatRelativeTime(entry.time)} <span>•</span> <FontAwesomeIcon icon={faFilter} /> {entry.type}
+                  <FontAwesomeIcon icon={faClock} /> {formatRelativeTime(entry.time)} <span>•</span> <FontAwesomeIcon icon={faFilter} /> {formatNotificationType(entry.type)}
                 </p>
               </div>
 
