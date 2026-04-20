@@ -28,6 +28,8 @@ insert with check (auth.uid() is not null);
 drop policy if exists "reports_update_authenticated" on public.reports;
 create policy "reports_update_authenticated" on public.reports for
 update using (auth.uid() is not null) with check (auth.uid() is not null);
+drop policy if exists "reports_delete_authenticated" on public.reports;
+create policy "reports_delete_authenticated" on public.reports for delete using (auth.uid() is not null);
 alter table if exists public.items
 add column if not exists custom_category text,
   add column if not exists custody_note text,

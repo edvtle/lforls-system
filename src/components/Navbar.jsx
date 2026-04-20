@@ -3,6 +3,8 @@ import { Link, NavLink } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBars, faBell, faCircleUser, faComments, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { getNotifications, getUnreadCount, markNotificationRead } from "../utils/notificationStore";
+import { getUnreadMessagesCount, messagesUpdatedEventName } from "../utils/messagingStore";
+import { useAuth } from "../context/AuthContext";
 
 const menuItems = [
   { to: "/home", label: "Home" },
@@ -13,9 +15,12 @@ const menuItems = [
 ];
 
 const Navbar = () => {
+  const { profile } = useAuth();
+  const currentUserId = profile?.id || null;
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(() => getUnreadCount());
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [notifications, setNotifications] = useState(() => getNotifications().slice(0, 6));
   const dropdownRef = useRef(null);
 
@@ -28,6 +33,27 @@ const Navbar = () => {
     window.addEventListener("lforls:notifications-updated", refresh);
     return () => window.removeEventListener("lforls:notifications-updated", refresh);
   }, []);
+
+  useEffect(() => {
+    const refreshUnreadMessages = async () => {
+      if (!currentUserId) {
+        setUnreadMessagesCount(0);
+        return;
+      }
+
+      try {
+        const count = await getUnreadMessagesCount({ userId: currentUserId });
+        setUnreadMessagesCount(count);
+      } catch {
+        setUnreadMessagesCount(0);
+      }
+    };
+
+    refreshUnreadMessages();
+
+    window.addEventListener(messagesUpdatedEventName, refreshUnreadMessages);
+    return () => window.removeEventListener(messagesUpdatedEventName, refreshUnreadMessages);
+  }, [currentUserId]);
 
   useEffect(() => {
     const onClickOutside = (event) => {
@@ -88,14 +114,14 @@ const Navbar = () => {
             className={({ isActive }) => `app-link ${isActive ? "app-link-active" : ""}`}
             onClick={() => setIsMobileMenuOpen(false)}
           >
-            Notifications
+            Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}
           </NavLink>
           <NavLink
             to="/messages"
             className={({ isActive }) => `app-link ${isActive ? "app-link-active" : ""}`}
             onClick={() => setIsMobileMenuOpen(false)}
           >
-            Messages
+            Messages{unreadMessagesCount > 0 ? ` (${unreadMessagesCount > 99 ? "99+" : unreadMessagesCount})` : ""}
           </NavLink>
           <NavLink
             to="/profile"
@@ -152,14 +178,19 @@ const Navbar = () => {
             </div>
           ) : null}
         </div>
-        <NavLink
-          to="/messages"
-          className={({ isActive }) => `app-icon-link ${isActive ? "app-link-active" : ""}`}
-          aria-label="Messages"
-          title="Messages"
-        >
-          <FontAwesomeIcon icon={faComments} className="app-icon-svg" aria-hidden="true" focusable="false" />
-        </NavLink>
+        <div className="app-notification-wrap">
+          <NavLink
+            to="/messages"
+            className={({ isActive }) => `app-icon-link app-notification-trigger ${isActive ? "app-link-active" : ""}`}
+            aria-label="Messages"
+            title="Messages"
+          >
+            <FontAwesomeIcon icon={faComments} className="app-icon-svg" aria-hidden="true" focusable="false" />
+            {unreadMessagesCount > 0 ? (
+              <span className="app-notification-badge">{unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}</span>
+            ) : null}
+          </NavLink>
+        </div>
         <NavLink
           to="/profile"
           className={({ isActive }) => `app-icon-link ${isActive ? "app-link-active" : ""}`}

@@ -47,6 +47,7 @@ const Messages = () => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [threadLoading, setThreadLoading] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [showVerification, setShowVerification] = useState(false);
   const [verification, setVerification] = useState({
     fullName: "",
@@ -62,7 +63,12 @@ const Messages = () => {
     setSnackbar({ visible: true, message });
   };
 
-  const refreshConversations = async () => {
+  const refreshConversations = async (options = {}) => {
+    const includeArchived =
+      typeof options.includeArchived === "boolean"
+        ? options.includeArchived
+        : showArchived;
+
     if (!currentUserId) {
       setConversations([]);
       setActiveId("");
@@ -71,7 +77,10 @@ const Messages = () => {
     }
 
     try {
-      const nextConversations = await getConversations({ userId: currentUserId });
+      const nextConversations = await getConversations({
+        userId: currentUserId,
+        includeArchived,
+      });
       setConversations(nextConversations);
       setActiveId((current) => {
         if (current && nextConversations.some((entry) => entry.id === current)) {
@@ -102,7 +111,7 @@ const Messages = () => {
   useEffect(() => {
     setLoading(true);
     refreshConversations();
-  }, [currentUserId]);
+  }, [currentUserId, showArchived]);
 
   useEffect(() => {
     const handleUpdated = () => {
@@ -111,7 +120,7 @@ const Messages = () => {
 
     window.addEventListener(messagesUpdatedEventName, handleUpdated);
     return () => window.removeEventListener(messagesUpdatedEventName, handleUpdated);
-  }, [currentUserId]);
+  }, [currentUserId, showArchived]);
 
   useEffect(() => {
     if (!activeId || !currentUserId) {
@@ -416,8 +425,23 @@ const Messages = () => {
       <div className="messages-layout">
         <aside className="messages-sidebar">
           <div className="messages-sidebar-head">
-            <h3>Conversations</h3>
+            <h3>{showArchived ? "Archived chats" : "Conversations"}</h3>
             <span>{conversationSummaries.length}</span>
+          </div>
+
+          <div className="messages-sidebar-toolbar">
+            <button
+              type="button"
+              className="messages-ghost-button"
+              onClick={() => {
+                setShowArchived((current) => !current);
+                setMessageText("");
+                setMenuConversationId("");
+                setActiveId("");
+              }}
+            >
+              <FontAwesomeIcon icon={faBoxArchive} /> {showArchived ? "Back to inbox" : "View archived chats"}
+            </button>
           </div>
 
           <label className="messages-search-field">
@@ -471,13 +495,15 @@ const Messages = () => {
                     </button>
                     {menuConversationId === entry.id ? (
                       <div className="messages-conversation-menu" role="menu" aria-label="Conversation actions menu">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => handleArchiveConversation(entry.id)}
-                        >
-                          <FontAwesomeIcon icon={faBoxArchive} /> Archive
-                        </button>
+                        {!showArchived ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => handleArchiveConversation(entry.id)}
+                          >
+                            <FontAwesomeIcon icon={faBoxArchive} /> Archive
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           role="menuitem"
@@ -525,7 +551,7 @@ const Messages = () => {
                 <FontAwesomeIcon icon={faShieldHalved} /> Safety mode on. Email and phone are not shared in chat.
               </div>
 
-              {canSubmitClaimVerification ? (
+              {!showArchived && canSubmitClaimVerification ? (
                 <button type="button" className="messages-claim-button" onClick={() => setShowVerification((open) => !open)}>
                   <FontAwesomeIcon icon={faCircleCheck} /> This is my item (claim verification)
                 </button>
@@ -544,32 +570,38 @@ const Messages = () => {
                 ))}
               </div>
 
-              <div className="messages-input-row">
-                <div className="messages-input-wrap">
-                <input
-                  type="text"
-                  value={messageText}
-                  onChange={(event) => setMessageText(event.target.value)}
-                  placeholder={activeConversation.blocked ? "Conversation is blocked" : "Type a secure message"}
-                  disabled={activeConversation.blocked}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      submitMessage();
-                    }
-                  }}
-                />
-                <small>Keep personal details private. Use verification flow for claims.</small>
+              {showArchived ? (
+                <div className="messages-archive-note">
+                  This conversation is archived. Use Back to inbox when you want to continue active chats.
                 </div>
-                <button type="button" className="hero-button hero-button-lost" onClick={submitMessage} disabled={activeConversation.blocked}>
-                  <FontAwesomeIcon icon={faPaperPlane} /> Send
-                </button>
-              </div>
+              ) : (
+                <div className="messages-input-row">
+                  <div className="messages-input-wrap">
+                  <input
+                    type="text"
+                    value={messageText}
+                    onChange={(event) => setMessageText(event.target.value)}
+                    placeholder={activeConversation.blocked ? "Conversation is blocked" : "Type a secure message"}
+                    disabled={activeConversation.blocked}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        submitMessage();
+                      }
+                    }}
+                  />
+                  <small>Keep personal details private. Use verification flow for claims.</small>
+                  </div>
+                  <button type="button" className="hero-button hero-button-lost" onClick={submitMessage} disabled={activeConversation.blocked}>
+                    <FontAwesomeIcon icon={faPaperPlane} /> Send
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <div className="messages-empty-state">
-              <p>{currentUserId ? "No conversations yet." : "Sign in to view your messages."}</p>
-              <small>New secure chats will appear here when a match is created.</small>
+              <p>{currentUserId ? (showArchived ? "No archived chats yet." : "No conversations yet.") : "Sign in to view your messages."}</p>
+              <small>{showArchived ? "Archived conversations will appear here." : "New secure chats will appear here when a match is created."}</small>
             </div>
           )}
         </section>

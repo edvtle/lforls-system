@@ -30,7 +30,10 @@ const toConversationCard = (row) => ({
 
 export const messagesUpdatedEventName = MESSAGES_UPDATED_EVENT;
 
-export const getConversations = async ({ userId }) => {
+export const getConversations = async ({
+  userId,
+  includeArchived = false,
+} = {}) => {
   assertSupabase();
   if (!userId) {
     return [];
@@ -79,7 +82,9 @@ export const getConversations = async ({ userId }) => {
     })
     .filter(Boolean)
     .filter((entry) => !entry.deleted_at)
-    .filter((entry) => !entry.archived_at);
+    .filter((entry) =>
+      includeArchived ? Boolean(entry.archived_at) : !entry.archived_at,
+    );
 
   if (!baseRows.length) {
     return [];
@@ -135,6 +140,14 @@ export const getConversations = async ({ userId }) => {
         new Date(right.updatedAt).getTime() -
         new Date(left.updatedAt).getTime(),
     );
+};
+
+export const getUnreadMessagesCount = async ({ userId } = {}) => {
+  const conversations = await getConversations({ userId });
+  return conversations.reduce(
+    (total, entry) => total + Number(entry.unreadCount || 0),
+    0,
+  );
 };
 
 export const archiveConversation = async ({ conversationId, userId }) => {

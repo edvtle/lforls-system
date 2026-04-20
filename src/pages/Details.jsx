@@ -29,7 +29,7 @@ import { useAuth } from "../context/AuthContext";
 import { createOrGetConversation, sendMessage } from "../utils/messagingStore";
 import { isItemSaved, toggleSavedItem } from "../utils/savedItemStore";
 
-const getStatusTone = (status) => status.toLowerCase();
+const getStatusTone = (status) => String(status || "").toLowerCase();
 
 const formatDate = (value) =>
   new Date(`${value}T00:00:00`).toLocaleDateString("en-US", {

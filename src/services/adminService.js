@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
+import { itemsUpdatedEventName } from "../utils/itemStore";
 
 const resetApiBaseUrl =
   import.meta.env.VITE_RESET_API_BASE_URL || "http://localhost:4001";
@@ -179,6 +180,10 @@ const buildActivityLogs = ({ items, users, claims, flags }) => {
   return logs.slice(0, 4);
 };
 
+const notifyItemsUpdated = () => {
+  window.dispatchEvent(new Event(itemsUpdatedEventName));
+};
+
 export const listAdminItems = async () => {
   assertSupabase();
 
@@ -270,6 +275,34 @@ export const listAdminClaims = async () => {
   }
 
   if (error) {
+    const fallbackNoOrder = await supabase
+      .from("claims")
+      .select(
+        "id, full_name, claimant_name, contact, contact_value, college_dept, program_year, route_to, status, item_name, items(item_name)",
+      )
+      .limit(200);
+
+    if (!fallbackNoOrder.error) {
+      data = fallbackNoOrder.data;
+      error = null;
+    } else {
+      const directNoOrder = await supabase
+        .from("claims")
+        .select(
+          "id, full_name, claimant_name, contact, contact_value, college_dept, program_year, route_to, status, item_name",
+        )
+        .limit(200);
+
+      if (!directNoOrder.error) {
+        data = directNoOrder.data;
+        error = null;
+      } else {
+        error = directNoOrder.error;
+      }
+    }
+  }
+
+  if (error) {
     if (isMissingRelationError(error)) {
       return [];
     }
@@ -336,6 +369,8 @@ export const updateAdminItemStatus = async (itemId, status) => {
     .update({ status })
     .eq("id", itemId);
   if (error) throw error;
+
+  notifyItemsUpdated();
 };
 
 export const deleteAdminItem = async (itemId) => {
@@ -343,6 +378,8 @@ export const deleteAdminItem = async (itemId) => {
 
   const { error } = await supabase.from("items").delete().eq("id", itemId);
   if (error) throw error;
+
+  notifyItemsUpdated();
 };
 
 export const updateAdminUserStatus = async (userId, status) => {
@@ -420,13 +457,39 @@ export const removeFlaggedContent = async ({ flagId, itemId }) => {
   if (itemId) {
     const { error: itemError } = await supabase
       .from("items")
-      .update({ status: "content_removed" })
+      .update({ status: "resolved" })
       .eq("id", itemId);
 
     if (itemError) {
       throw itemError;
     }
   }
+
+  notifyItemsUpdated();
+};
+
+export const deleteAdminFlag = async (flagId) => {
+  assertSupabase();
+
+  const { error: rpcError } = await supabase.rpc("admin_delete_report", {
+    target_report_id: flagId,
+  });
+  if (!rpcError) {
+    return { success: true };
+  }
+
+  const { error } = await supabase.from("reports").delete().eq("id", flagId);
+  if (error) {
+    if (isMissingRelationError(error)) {
+      throw new Error(
+        "No database-backed reports table is available for admin moderation yet.",
+      );
+    }
+
+    throw error;
+  }
+
+  return { success: true };
 };
 
 export const deleteAdminUser = async (userId) => {

@@ -50,6 +50,10 @@
   font-weight: 700;
 }
 
+.messages-sidebar-toolbar {
+  margin-top: 0.55rem;
+}
+
 .messages-search-field {
   margin-top: 0.65rem;
   display: block;
@@ -436,6 +440,16 @@
   display: block;
   margin-top: 0.25rem;
   color: #9bb091;
+}
+
+.messages-archive-note {
+  border: 1px solid rgba(93, 214, 44, 0.2);
+  border-radius: 0.8rem;
+  padding: 0.65rem 0.75rem;
+  background: rgba(93, 214, 44, 0.08);
+  color: #dce8d6;
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 html[data-theme="light"] .browse-status-found,

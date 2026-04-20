@@ -130,6 +130,15 @@ const isSchemaMismatchError = (error) => {
   );
 };
 
+const isRlsPolicyError = (error) => {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    error?.code === "42501" ||
+    message.includes("row-level security") ||
+    message.includes("violates row-level security policy")
+  );
+};
+
 const toProfileReportCard = (item) => {
   const images = Array.isArray(item.item_images) ? item.item_images : [];
   const primary = images.find((entry) => entry.is_primary) || images[0];
@@ -328,7 +337,12 @@ const createMatchesForItem = async (currentItem) => {
   }));
 
   const { error: insertError } = await supabase.from("matches").insert(rows);
-  if (insertError) throw insertError;
+  if (insertError) {
+    if (isRlsPolicyError(insertError)) {
+      return [];
+    }
+    throw insertError;
+  }
 
   const maxScore = ranked[0]?.finalScore || 0;
   await supabase

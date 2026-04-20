@@ -6,6 +6,7 @@ import SearchBar from "../components/ui/SearchBar";
 import SelectDropdown from "../components/ui/SelectDropdown";
 import { listRecentItems } from "../services/itemsService";
 import { getSavedItemIds, savedItemsUpdatedEventName } from "../utils/savedItemStore";
+import { itemsUpdatedEventName } from "../utils/itemStore";
 import "../styles/Browse.css";
 
 const categoryOptions = ["All", "Electronics", "IDs", "Bags", "Clothing", "Others"];
@@ -95,8 +96,15 @@ const BrowseItems = () => {
     };
 
     loadItems();
+
+    const refreshItems = () => {
+      loadItems();
+    };
+
+    window.addEventListener(itemsUpdatedEventName, refreshItems);
     return () => {
       mounted = false;
+      window.removeEventListener(itemsUpdatedEventName, refreshItems);
     };
   }, [query, category, location, date]);
 

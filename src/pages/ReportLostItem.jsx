@@ -14,10 +14,16 @@ import {
   faWandMagic,
   faTrash,
 } from "@fortawesome/free-solid-svg-icons";
+import Modal from "../components/Modal";
 import SelectDropdown from "../components/ui/SelectDropdown";
 import ImageCropModal from "../components/ImageCropModal";
 import { useAuth } from "../context/AuthContext";
 import { submitItemReport } from "../services/reportingService";
+import {
+  deleteReportDraft,
+  getReportDraft,
+  saveReportDraft,
+} from "../utils/reportDraftStore";
 
 const TOTAL_STEPS = 4;
 
@@ -88,20 +94,47 @@ const detectLikelyCategory = (fileName = "", itemName = "") => {
 
 const getResolvedCategory = (form) => (form.category === "Others" ? form.customCategory.trim() : form.category.trim());
 
+const isEmailContactMethod = (value) => String(value || "").toLowerCase() === "email";
+
+const fileToDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Unable to read file."));
+    reader.readAsDataURL(file);
+  });
+
+const dataUrlToFile = async (dataUrl, fileName) => {
+  if (!dataUrl) {
+    return null;
+  }
+
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], fileName || "upload.jpg", { type: blob.type || "image/jpeg" });
+};
+
 const ReportLostItem = () => {
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, session } = useAuth();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
   const [uploadedFile, setUploadedFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
+  const [draftImageDataUrl, setDraftImageDataUrl] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [aiDetected, setAiDetected] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDraftDirty, setIsDraftDirty] = useState(false);
+  const [saveDraftNotice, setSaveDraftNotice] = useState("");
+  const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropFileName, setCropFileName] = useState("upload.jpg");
+  const [draftRestoreOpen, setDraftRestoreOpen] = useState(false);
+  const [draftRestoreData, setDraftRestoreData] = useState(null);
+  const [draftCheckedUserId, setDraftCheckedUserId] = useState("");
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -118,7 +151,158 @@ const ReportLostItem = () => {
     };
   }, [uploadedFile]);
 
+  const accountEmail = profile?.email || session?.user?.email || "";
+  const reportDraftUserId = profile?.id || session?.user?.id || "anonymous";
+
+  useEffect(() => {
+    if (!reportDraftUserId || draftCheckedUserId === reportDraftUserId) {
+      return;
+    }
+
+    const draft = getReportDraft({ reportType: "lost", userId: reportDraftUserId });
+    setDraftCheckedUserId(reportDraftUserId);
+
+    if (draft) {
+      setDraftRestoreData(draft);
+      setDraftRestoreOpen(true);
+      return;
+    }
+
+    setDraftRestoreData(null);
+    setDraftRestoreOpen(false);
+    setDraftImageDataUrl("");
+    setAiDetected("");
+  }, [draftCheckedUserId, reportDraftUserId]);
+
+  useEffect(() => {
+    if (!draftRestoreData || !draftRestoreOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setDraftRestoreOpen(false);
+        setDraftRestoreData(null);
+        deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
+        setIsDraftDirty(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [draftRestoreData, draftRestoreOpen]);
+
+  const handleContactMethodChange = (value) => {
+    updateField("contactMethod", value);
+    if (isEmailContactMethod(value) && accountEmail) {
+      updateField("contactValue", accountEmail);
+    }
+  };
+
+  const persistDraft = () => {
+    if (submitted) {
+      return;
+    }
+
+    saveReportDraft({
+      reportType: "lost",
+      userId: reportDraftUserId,
+      draft: {
+        step,
+        form,
+        imageDataUrl: draftImageDataUrl,
+        imageName: cropFileName,
+        aiDetected,
+        savedAt: new Date().toISOString(),
+      },
+    });
+  };
+
+  useEffect(() => {
+    if (!draftRestoreData || draftRestoreOpen) {
+      return undefined;
+    }
+
+    const restoreDraft = async () => {
+      setForm({ ...emptyForm, ...(draftRestoreData.form || {}) });
+      setStep(Math.min(TOTAL_STEPS, Math.max(1, Number(draftRestoreData.step) || 1)));
+      setAiDetected(draftRestoreData.aiDetected || "");
+      setCropFileName(draftRestoreData.imageName || "upload.jpg");
+      setErrors({});
+
+      if (draftRestoreData.imageDataUrl) {
+        try {
+          const restoredFile = await dataUrlToFile(
+            draftRestoreData.imageDataUrl,
+            draftRestoreData.imageName || "upload.jpg",
+          );
+          setUploadedFile(restoredFile);
+          setDraftImageDataUrl(draftRestoreData.imageDataUrl);
+          setImagePreview(draftRestoreData.imageDataUrl);
+        } catch {
+          setUploadedFile(null);
+          setDraftImageDataUrl(draftRestoreData.imageDataUrl);
+          setImagePreview(draftRestoreData.imageDataUrl);
+        }
+      } else {
+        setUploadedFile(null);
+        setDraftImageDataUrl("");
+        setImagePreview("");
+      }
+    };
+
+    restoreDraft().finally(() => {
+      setDraftRestoreOpen(false);
+      setDraftRestoreData(null);
+    });
+  }, [draftRestoreData, draftRestoreOpen]);
+
+  useEffect(() => {
+    if (!isDraftDirty || submitted || draftRestoreOpen || draftRestoreData) {
+      return;
+    }
+
+    if (draftCheckedUserId === reportDraftUserId) {
+      persistDraft();
+    }
+  }, [draftImageDataUrl, form, step, aiDetected, isDraftDirty, submitted, draftRestoreOpen, draftRestoreData, reportDraftUserId, draftCheckedUserId]);
+
+  useEffect(() => {
+    if (step !== 4 || !accountEmail || !isEmailContactMethod(form.contactMethod) || form.contactValue) {
+      return;
+    }
+
+    setForm((current) => ({ ...current, contactValue: accountEmail }));
+  }, [accountEmail, form.contactMethod, form.contactValue, step]);
+
+  useEffect(() => {
+    if (!saveDraftNotice) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setSaveDraftNotice(""), 1800);
+    return () => window.clearTimeout(timer);
+  }, [saveDraftNotice]);
+
   const progressPercent = Math.round((step / TOTAL_STEPS) * 100);
+
+  const hasDraftableInput = useMemo(() => {
+    const hasTextInput = Object.entries(form).some(([key, value]) => {
+      const defaultValue = emptyForm[key];
+
+      if (typeof value === "string") {
+        return value.trim() !== String(defaultValue ?? "").trim();
+      }
+
+      if (typeof value === "boolean") {
+        return value !== defaultValue;
+      }
+
+      return value !== null && value !== undefined && value !== defaultValue;
+    });
+
+    return hasTextInput || Boolean(uploadedFile) || Boolean(draftImageDataUrl);
+  }, [draftImageDataUrl, form, uploadedFile]);
 
   const suggestedCategories = useMemo(() => {
     const source = `${form.itemName} ${form.description}`.toLowerCase();
@@ -143,6 +327,7 @@ const ReportLostItem = () => {
   }, [form.itemName, form.description]);
 
   const updateField = (field, value) => {
+    setIsDraftDirty(true);
     setForm((current) => ({ ...current, [field]: value }));
     setErrors((current) => {
       if (!current[field]) {
@@ -171,6 +356,13 @@ const ReportLostItem = () => {
 
     if (targetStep === 4) {
       if (!form.contactValue.trim()) nextErrors.contactValue = "This field is required";
+      if (
+        !nextErrors.contactValue &&
+        isEmailContactMethod(form.contactMethod) &&
+        !/^[^\s@]+@[^\s@]+$/.test(form.contactValue.trim())
+      ) {
+        nextErrors.contactValue = "Please enter a valid email address.";
+      }
     }
 
     setErrors(nextErrors);
@@ -182,10 +374,12 @@ const ReportLostItem = () => {
       return;
     }
 
+    setIsDraftDirty(true);
     setStep((current) => Math.min(TOTAL_STEPS, current + 1));
   };
 
   const handleBack = () => {
+    setIsDraftDirty(true);
     setStep((current) => Math.max(1, current - 1));
   };
 
@@ -197,12 +391,20 @@ const ReportLostItem = () => {
     setUploadedFile(file);
     setCropFileName(file.name || "upload.jpg");
     setAiDetected(detectLikelyCategory(file.name, form.itemName));
+    setIsDraftDirty(true);
+    void fileToDataUrl(file)
+      .then((dataUrl) => setDraftImageDataUrl(dataUrl))
+      .catch(() => setDraftImageDataUrl(""));
   };
 
   const applyCroppedImage = (croppedFile) => {
     setUploadedFile(croppedFile);
     setAiDetected(detectLikelyCategory(croppedFile.name, form.itemName));
     setCropModalOpen(false);
+    setIsDraftDirty(true);
+    void fileToDataUrl(croppedFile)
+      .then((dataUrl) => setDraftImageDataUrl(dataUrl))
+      .catch(() => setDraftImageDataUrl(""));
   };
 
   const handleDrop = (event) => {
@@ -215,24 +417,40 @@ const ReportLostItem = () => {
   const removeImage = () => {
     setUploadedFile(null);
     setAiDetected("");
+    setDraftImageDataUrl("");
     setCropModalOpen(false);
+    setIsDraftDirty(true);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = (event) => {
     event.preventDefault();
+    if (step !== TOTAL_STEPS) {
+      return;
+    }
 
     if (!validateStep(1) || !validateStep(2) || !validateStep(4)) {
       return;
     }
 
-    if (!profile?.id) {
-      setErrors((current) => ({ ...current, contactValue: current.contactValue || "You must be logged in." }));
+    setConfirmSubmitOpen(true);
+  };
+
+  const handleConfirmSubmit = async () => {
+    if (!validateStep(1) || !validateStep(2) || !validateStep(4)) {
+      setConfirmSubmitOpen(false);
       return;
     }
 
+    if (!profile?.id) {
+      setErrors((current) => ({ ...current, contactValue: current.contactValue || "You must be logged in." }));
+      setConfirmSubmitOpen(false);
+      return;
+    }
+
+    setConfirmSubmitOpen(false);
     setIsSubmitting(true);
 
     try {
@@ -255,7 +473,10 @@ const ReportLostItem = () => {
         file: uploadedFile,
       });
 
-      navigate("/matches", {
+      deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
+      setIsDraftDirty(false);
+      navigate("/browse", {
+        replace: true,
         state: {
           reportId: result.item.id,
           matchCount: result.matches.length,
@@ -269,6 +490,16 @@ const ReportLostItem = () => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleManualSaveDraft = () => {
+    if (!hasDraftableInput) {
+      return;
+    }
+
+    setIsDraftDirty(true);
+    persistDraft();
+    setSaveDraftNotice("Draft saved.");
   };
 
   if (submitted) {
@@ -287,8 +518,11 @@ const ReportLostItem = () => {
             setErrors({});
             setUploadedFile(null);
             setAiDetected("");
+            setDraftImageDataUrl("");
+            deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
             setStep(1);
             setSubmitted(false);
+            setIsDraftDirty(false);
           }}
         >
           <FontAwesomeIcon icon={faCheck} />
@@ -566,9 +800,9 @@ const ReportLostItem = () => {
 
             <label className="report-field">
               <span>Preferred contact method</span>
-              <SelectDropdown
+                <SelectDropdown
                 value={form.contactMethod}
-                onChange={(value) => updateField("contactMethod", value)}
+                onChange={handleContactMethodChange}
                 className="report-select"
                 options={contactMethodOptions}
               />
@@ -577,10 +811,13 @@ const ReportLostItem = () => {
             <label className="report-field">
               <span>{form.contactMethod === "Email" ? "Email address" : "Phone number"}</span>
               <input
-                type={form.contactMethod === "Email" ? "email" : "tel"}
+                type={isEmailContactMethod(form.contactMethod) ? "text" : "tel"}
+                inputMode={isEmailContactMethod(form.contactMethod) ? "email" : "tel"}
+                autoComplete={isEmailContactMethod(form.contactMethod) ? "email" : "tel"}
                 value={form.contactValue}
                 onChange={(event) => updateField("contactValue", event.target.value)}
                 placeholder={form.contactMethod === "Email" ? "name@example.com" : "09XX XXX XXXX"}
+                spellCheck={false}
               />
               {errors.contactValue ? <em>{errors.contactValue}</em> : null}
               <small>This stays private and is never shown publicly.</small>
@@ -608,16 +845,33 @@ const ReportLostItem = () => {
             <FontAwesomeIcon icon={faChevronLeft} /> Back
           </button>
 
-          {step < TOTAL_STEPS ? (
-            <button type="button" className="report-primary-button" onClick={handleNext}>
-              Next <FontAwesomeIcon icon={faChevronRight} />
+          <div className="report-actions-right">
+            <button
+              type="button"
+              className="report-secondary-button"
+              onClick={handleManualSaveDraft}
+              disabled={!hasDraftableInput || isSubmitting}
+            >
+              Save as draft
             </button>
-          ) : (
-            <button type="submit" className="report-primary-button">
-              <FontAwesomeIcon icon={faPaperPlane} /> {isSubmitting ? "Submitting..." : "Submit report"}
-            </button>
-          )}
+
+            {step < TOTAL_STEPS ? (
+              <button type="button" className="report-primary-button" onClick={handleNext}>
+                Next <FontAwesomeIcon icon={faChevronRight} />
+              </button>
+            ) : (
+              <button type="submit" className="report-primary-button">
+                <FontAwesomeIcon icon={faPaperPlane} /> {isSubmitting ? "Submitting..." : "Submit report"}
+              </button>
+            )}
+          </div>
         </div>
+        {saveDraftNotice ? <p className="report-draft-inline-note">{saveDraftNotice}</p> : null}
+        {!saveDraftNotice && !hasDraftableInput ? (
+          <p className="report-draft-inline-note report-draft-inline-note-muted">
+            Enter at least one detail to enable draft save.
+          </p>
+        ) : null}
       </form>
     </section>
 
@@ -630,6 +884,85 @@ const ReportLostItem = () => {
         }}
         onApply={applyCroppedImage}
       />
+
+      <Modal
+        isOpen={Boolean(draftRestoreData) && draftRestoreOpen}
+        onClose={() => {
+          setDraftRestoreOpen(false);
+          setDraftRestoreData(null);
+          deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
+          setIsDraftDirty(false);
+        }}
+        ariaLabel="Restore report draft"
+        overlayClassName="report-draft-backdrop"
+        panelClassName="report-draft-modal"
+      >
+        <p className="report-draft-kicker">Unsaved draft found</p>
+        <h3>Want to restore your draft?</h3>
+        <p className="report-draft-copy">
+          We found a saved lost-item report from your last session. You can restore it and continue where you left off, or start fresh.
+        </p>
+        <div className="report-draft-actions">
+          <button
+            type="button"
+            className="report-secondary-button"
+            onClick={() => {
+              setDraftRestoreOpen(false);
+              setDraftRestoreData(null);
+              setForm(emptyForm);
+              setErrors({});
+              setUploadedFile(null);
+              setDraftImageDataUrl("");
+              setAiDetected("");
+              setStep(1);
+              deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
+              setIsDraftDirty(false);
+            }}
+          >
+            Start fresh
+          </button>
+          <button
+            type="button"
+            className="report-primary-button"
+            onClick={() => {
+              setDraftRestoreOpen(false);
+            }}
+          >
+            Restore draft
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={confirmSubmitOpen && step === TOTAL_STEPS}
+        onClose={() => setConfirmSubmitOpen(false)}
+        ariaLabel="Confirm report submission"
+        overlayClassName="report-draft-backdrop"
+        panelClassName="report-draft-modal"
+      >
+        <p className="report-draft-kicker">Final check</p>
+        <h3>Are you sure you want to submit this report?</h3>
+        <p className="report-draft-copy">
+          Your lost-item report will be uploaded and reviewed for matching. Please verify all details are accurate before continuing.
+        </p>
+        <div className="report-draft-actions">
+          <button
+            type="button"
+            className="report-secondary-button"
+            onClick={() => setConfirmSubmitOpen(false)}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="report-primary-button"
+            onClick={handleConfirmSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Uploading..." : "Yes, upload report"}
+          </button>
+        </div>
+      </Modal>
     </>
   );
 };
