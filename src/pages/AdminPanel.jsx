@@ -117,6 +117,7 @@ const AdminPanel = () => {
   });
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedFlag, setSelectedFlag] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
   const [warnUserFlag, setWarnUserFlag] = useState(null);
   const [warningForm, setWarningForm] = useState({
     templateType: "generic",
@@ -360,6 +361,14 @@ const AdminPanel = () => {
       () => removeFlaggedContent({ flagId: flag.id, itemId: flag.itemId }),
       `Content for report ${flag.id} has been removed.`,
     );
+
+  const openImagePreview = (src, alt) => {
+    if (!src) {
+      return;
+    }
+
+    setPreviewImage({ src, alt: alt || "Image preview" });
+  };
 
   const handleLogout = async () => {
     try {
@@ -1125,16 +1134,15 @@ const AdminPanel = () => {
             </div>
             <div className="admin-modal-image-wrap">
               <img src={selectedItem.image} alt={selectedItem.name} className="admin-modal-image" />
-              <a
-                href={selectedItem.image}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
                 className="admin-modal-image-expand"
-                title="View full-size image"
-                aria-label="View full-size image"
+                title="Expand image"
+                aria-label="Expand image in modal"
+                onClick={() => openImagePreview(selectedItem.image, selectedItem.name)}
               >
                 <FontAwesomeIcon icon={faMagnifyingGlassPlus} />
-              </a>
+              </button>
             </div>
             <div className="admin-item-modal-grid">
               <article className="admin-item-fact"><span>ID</span><strong>{selectedItem.id}</strong></article>
@@ -1200,16 +1208,20 @@ const AdminPanel = () => {
                 </div>
                 <div className="admin-modal-image-wrap">
                   <img src={selectedFlag.itemDetails.image} alt={selectedFlag.itemDetails.name} className="admin-modal-image" />
-                  <a
-                    href={selectedFlag.itemDetails.image}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
                     className="admin-modal-image-expand"
-                    title="View full-size image"
-                    aria-label="View full-size image"
+                    title="Expand image"
+                    aria-label="Expand image in modal"
+                    onClick={() =>
+                      openImagePreview(
+                        selectedFlag.itemDetails.image,
+                        selectedFlag.itemDetails.name,
+                      )
+                    }
                   >
                     <FontAwesomeIcon icon={faMagnifyingGlassPlus} />
-                  </a>
+                  </button>
                 </div>
                 <div className="admin-item-modal-grid">
                   <article className="admin-item-fact"><span>ID</span><strong>{selectedFlag.itemDetails.id}</strong></article>
@@ -1236,6 +1248,28 @@ const AdminPanel = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {previewImage ? (
+        <div className="admin-modal-backdrop" role="presentation" onClick={() => setPreviewImage(null)}>
+          <div
+            className="admin-image-viewer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Image preview"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="admin-image-viewer-close"
+              onClick={() => setPreviewImage(null)}
+              aria-label="Close image preview"
+            >
+              Close
+            </button>
+            <img src={previewImage.src} alt={previewImage.alt} className="admin-image-viewer-image" />
           </div>
         </div>
       ) : null}
