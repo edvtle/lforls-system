@@ -505,6 +505,7 @@
   place-items: center;
   z-index: 70;
   padding: 1rem;
+  overflow-y: auto;
 }
 
 .admin-modal {
@@ -515,6 +516,8 @@
   padding: 1rem;
   display: grid;
   gap: 0.8rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
 }
 
 .admin-modal-success {

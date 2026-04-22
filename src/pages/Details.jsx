@@ -624,32 +624,34 @@ const Details = () => {
                 <Icon type="flag" />
               </button>
 
-              <button
-                type="button"
-                className={`details-ghost-button ${(claimed || Boolean(approvedClaim)) ? "details-ghost-active" : ""}`}
-                disabled={item.status === "Found" && (claimed || Boolean(approvedClaim))}
-                onClick={() => {
-                  if (item.status === "Found") {
-                    handleFoundItemClaimedClick();
-                    return;
-                  }
+              {isReportedByCurrentUser ? (
+                <button
+                  type="button"
+                  className={`details-ghost-button ${(claimed || Boolean(approvedClaim)) ? "details-ghost-active" : ""}`}
+                  disabled={item.status === "Found" && (claimed || Boolean(approvedClaim))}
+                  onClick={() => {
+                    if (item.status === "Found") {
+                      handleFoundItemClaimedClick();
+                      return;
+                    }
 
-                  setClaimed((current) => !current);
-                  showSnackbar(!claimed ? "Marked as claimed" : "Claim removed");
-                }}
-                title={
-                  item.status === "Found"
-                    ? (claimed || Boolean(approvedClaim))
-                      ? "Already claimed"
-                      : "Review claimer credentials"
-                    : claimed
-                      ? "Marked as claimed"
-                      : "Mark as claimed"
-                }
-              >
-                <Icon type="shield" />
-                {item.status === "Found" ? "Claimed" : claimed ? "Claimed" : "Claim"}
-              </button>
+                    setClaimed((current) => !current);
+                    showSnackbar(!claimed ? "Marked as claimed" : "Claim removed");
+                  }}
+                  title={
+                    item.status === "Found"
+                      ? (claimed || Boolean(approvedClaim))
+                        ? "Already claimed"
+                        : "Review claimer credentials"
+                      : claimed
+                        ? "Marked as claimed"
+                        : "Mark as claimed"
+                  }
+                >
+                  <Icon type="shield" />
+                  {item.status === "Found" ? "Claimed" : claimed ? "Claimed" : "Claim"}
+                </button>
+              ) : null}
             </div>
 
             <span className={`details-status-badge details-status-${statusTone}`}>

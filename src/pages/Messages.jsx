@@ -36,6 +36,14 @@ const formatTime = (isoDate) => {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
+const reportReasonOptions = [
+  { value: "scam", label: "Scam or fraud" },
+  { value: "harassment", label: "Harassment or threats" },
+  { value: "impersonation", label: "Impersonation" },
+  { value: "spam", label: "Spam or repeated unwanted messages" },
+  { value: "custom", label: "Custom" },
+];
+
 const Messages = () => {
   const [searchParams] = useSearchParams();
   const { profile } = useAuth();
@@ -56,6 +64,12 @@ const Messages = () => {
     programYear: "",
   });
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportForm, setReportForm] = useState({
+    reason: "scam",
+    customCategory: "",
+    message: "",
+  });
   const [menuConversationId, setMenuConversationId] = useState("");
   const menuWrapRef = useRef(null);
 
@@ -196,6 +210,11 @@ const Messages = () => {
     [conversations, activeId]
   );
 
+  const isChatDisabled = useMemo(
+    () => Boolean(activeConversation?.blocked || activeConversation?.suspensionReason),
+    [activeConversation],
+  );
+
   const canSubmitClaimVerification = useMemo(() => {
     if (!activeConversation || !currentUserId) {
       return false;
@@ -232,8 +251,8 @@ const Messages = () => {
       return;
     }
 
-    if (activeConversation.blocked) {
-      showSnackbar("Conversation is blocked.");
+    if (isChatDisabled) {
+      showSnackbar(activeConversation.suspensionReason || "Conversation is blocked.");
       return;
     }
 
@@ -335,13 +354,26 @@ const Messages = () => {
     showSnackbar("Claim submitted. Waiting for approval.");
   };
 
-  const handleReportUser = async () => {
+  const handleReportUser = () => {
     if (!activeConversation) {
       return;
     }
 
-    if (activeConversation.reported) {
-      showSnackbar("This conversation is already reported.");
+    setShowReportModal(true);
+  };
+
+  const submitConversationReport = async () => {
+    if (!activeConversation || !currentUserId) {
+      return;
+    }
+
+    if (reportForm.reason === "custom" && !reportForm.customCategory.trim()) {
+      showSnackbar("Enter a custom report category.");
+      return;
+    }
+
+    if (!reportForm.message.trim()) {
+      showSnackbar("Include a short report message for admin review.");
       return;
     }
 
@@ -351,6 +383,9 @@ const Messages = () => {
         itemId: activeConversation.itemId,
         itemName: activeConversation.context,
         userId: currentUserId,
+        reason: reportForm.reason,
+        customCategory: reportForm.customCategory,
+        message: reportForm.message,
       });
       createNotification({
         type: "safety",
@@ -360,6 +395,8 @@ const Messages = () => {
         path: "/messages",
         recipientId: currentUserId,
       });
+      setShowReportModal(false);
+      setReportForm({ reason: "scam", customCategory: "", message: "" });
       await refreshConversations();
       showSnackbar("Report sent to admin.");
     } catch (error) {
@@ -369,6 +406,11 @@ const Messages = () => {
 
   const handleToggleBlock = async () => {
     if (!activeConversation) {
+      return;
+    }
+
+    if (activeConversation.suspensionReason) {
+      showSnackbar("This chat is suspended by admin and cannot be unblocked here.");
       return;
     }
 
@@ -523,7 +565,9 @@ const Messages = () => {
           </ul>
         </aside>
 
-        <section className="messages-chat-panel">
+        <section
+          className={`messages-chat-panel ${isChatDisabled ? "messages-chat-panel-disabled" : ""}`}
+        >
           {activeConversation ? (
             <>
               <div className="messages-chat-head">
@@ -543,15 +587,25 @@ const Messages = () => {
                     type="button"
                     className="messages-ghost-button"
                     onClick={handleToggleBlock}
+                    disabled={Boolean(activeConversation.suspensionReason)}
                   >
-                    <FontAwesomeIcon icon={faBan} /> {activeConversation.blocked ? "Unblock" : "Block"}
+                    <FontAwesomeIcon icon={faBan} /> {activeConversation.suspensionReason ? "Suspended" : activeConversation.blocked ? "Unblock" : "Block"}
                   </button>
                 </div>
               </div>
 
-              <div className="messages-safety-strip">
-                <FontAwesomeIcon icon={faShieldHalved} /> Safety mode on. Email and phone are not shared in chat.
-              </div>
+              {!isChatDisabled ? (
+                <div className="messages-safety-strip">
+                  <FontAwesomeIcon icon={faShieldHalved} /> Safety mode on. Email and phone are not shared in chat.
+                </div>
+              ) : null}
+
+              {isChatDisabled ? (
+                <div className="messages-suspension-strip" role="status" aria-live="polite">
+                  <FontAwesomeIcon icon={faBan} />
+                  <span>{activeConversation.suspensionReason || "This chat is currently suspended by admin."}</span>
+                </div>
+              ) : null}
 
               {!showArchived && canSubmitClaimVerification ? (
                 <button type="button" className="messages-claim-button" onClick={() => setShowVerification((open) => !open)}>
@@ -583,8 +637,12 @@ const Messages = () => {
                     type="text"
                     value={messageText}
                     onChange={(event) => setMessageText(event.target.value)}
-                    placeholder={activeConversation.blocked ? "Conversation is blocked" : "Type a secure message"}
-                    disabled={activeConversation.blocked}
+                    placeholder={
+                      isChatDisabled
+                        ? activeConversation.suspensionReason || "Conversation is blocked"
+                        : "Type a secure message"
+                    }
+                    disabled={isChatDisabled}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
                         event.preventDefault();
@@ -594,7 +652,7 @@ const Messages = () => {
                   />
                   <small>Keep personal details private. Use verification flow for claims.</small>
                   </div>
-                  <button type="button" className="hero-button hero-button-lost" onClick={submitMessage} disabled={activeConversation.blocked}>
+                  <button type="button" className="hero-button hero-button-lost" onClick={submitMessage} disabled={isChatDisabled}>
                     <FontAwesomeIcon icon={faPaperPlane} /> Send
                   </button>
                 </div>
@@ -688,6 +746,92 @@ const Messages = () => {
             </button>
             <button type="submit" className="details-flow-submit">
               Submit Claim
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        ariaLabel="Report conversation"
+        overlayClassName="details-flow-modal"
+        panelClassName="details-flow-panel"
+      >
+        <div className="details-modal-head">
+          <div>
+            <p className="page-kicker">Safety report</p>
+            <h3 className="page-title">Report Conversation</h3>
+            <p className="details-flow-note">Choose a reason and add details for admin review.</p>
+          </div>
+          <button
+            type="button"
+            className="details-close-button"
+            onClick={() => setShowReportModal(false)}
+            aria-label="Close dialog"
+          >
+            x
+          </button>
+        </div>
+
+        <form
+          className="details-flow-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitConversationReport();
+          }}
+        >
+          <label className="details-form-field">
+            <span>Reason</span>
+            <select
+              value={reportForm.reason}
+              onChange={(event) =>
+                setReportForm((current) => ({ ...current, reason: event.target.value }))
+              }
+              className="messages-report-select"
+            >
+              {reportReasonOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {reportForm.reason === "custom" ? (
+            <label className="details-form-field">
+              <span>Custom Category</span>
+              <input
+                type="text"
+                value={reportForm.customCategory}
+                onChange={(event) =>
+                  setReportForm((current) => ({ ...current, customCategory: event.target.value }))
+                }
+                placeholder="e.g., Suspicious payment request"
+                required
+              />
+            </label>
+          ) : null}
+
+          <label className="details-form-field">
+            <span>Message</span>
+            <textarea
+              value={reportForm.message}
+              onChange={(event) =>
+                setReportForm((current) => ({ ...current, message: event.target.value }))
+              }
+              placeholder="Describe what happened."
+              rows={4}
+              required
+            />
+          </label>
+
+          <div className="details-flow-actions">
+            <button type="button" className="details-ghost-button" onClick={() => setShowReportModal(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="details-flow-submit">
+              Submit Report
             </button>
           </div>
         </form>

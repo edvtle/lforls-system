@@ -35,6 +35,7 @@ import {
   loadAdminPanelData,
   removeFlaggedContent,
   sendUserWarning,
+  toggleChatConversationSuspension,
   updateAdminClaimStatus,
   updateAdminFlagStatus,
   updateAdminItemStatus,
@@ -260,11 +261,16 @@ const AdminPanel = () => {
     }
   };
 
-  const changeItemStatus = (id, status, label) =>
-    withMutationFeedback(
-      () => updateAdminItemStatus(id, status),
-      `Item ${id} marked as ${label}.`,
-    );
+  const changeItemStatus = (id, status) => {
+    const message =
+      status === "resolved"
+        ? `Item ${id} marked as resolved and hidden from Browse.`
+        : status === "open"
+          ? `Item ${id} reopened and restored to Browse.`
+          : `Item ${id} updated.`;
+
+    return withMutationFeedback(() => updateAdminItemStatus(id, status), message);
+  };
 
   const removeItem = (id) =>
     withMutationFeedback(() => deleteAdminItem(id), `Item ${id} deleted.`);
@@ -393,6 +399,95 @@ const AdminPanel = () => {
         openReportSuccessModal(
           "Content removed",
           `Report ${flag.id} was marked as removed and the related content is hidden from Browse.`,
+        );
+      } catch (error) {
+        showSnackbar(error?.message || "Database update failed.");
+      }
+    })();
+
+  const suspendChatFromFlag = (flag) =>
+    (async () => {
+      try {
+        const reasonMessage = `This chat was reported as ${String(
+          flag.reason || "a safety concern",
+        ).toLowerCase()}.`;
+
+        await toggleChatConversationSuspension({
+          reportId: flag.id,
+          conversationId: flag.conversationId,
+          reason: reasonMessage,
+          shouldSuspend: true,
+        });
+
+        setPanelData((current) => ({
+          ...current,
+          flags: current.flags.map((entry) =>
+            entry.id === flag.id
+              ? {
+                  ...entry,
+                  status: "Chat suspended",
+                  rawStatus: "chat_suspended",
+                  body: reasonMessage,
+                }
+              : entry,
+          ),
+        }));
+
+        setSelectedFlag((current) =>
+          current?.id === flag.id
+            ? {
+                ...current,
+                status: "Chat suspended",
+                rawStatus: "chat_suspended",
+                body: reasonMessage,
+              }
+            : current,
+        );
+
+        openReportSuccessModal(
+          "Chat suspended",
+          `Conversation ${flag.conversationId} is now suspended. Users will see the moderation reason in Messages.`,
+        );
+      } catch (error) {
+        showSnackbar(error?.message || "Database update failed.");
+      }
+    })();
+
+  const enableChatFromFlag = (flag) =>
+    (async () => {
+      try {
+        await toggleChatConversationSuspension({
+          reportId: flag.id,
+          conversationId: flag.conversationId,
+          shouldSuspend: false,
+        });
+
+        setPanelData((current) => ({
+          ...current,
+          flags: current.flags.map((entry) =>
+            entry.id === flag.id
+              ? {
+                  ...entry,
+                  status: "Open",
+                  rawStatus: "open",
+                }
+              : entry,
+          ),
+        }));
+
+        setSelectedFlag((current) =>
+          current?.id === flag.id
+            ? {
+                ...current,
+                status: "Open",
+                rawStatus: "open",
+              }
+            : current,
+        );
+
+        openReportSuccessModal(
+          "Chat enabled",
+          `Conversation ${flag.conversationId} is active again. Users can send messages normally.`,
         );
       } catch (error) {
         showSnackbar(error?.message || "Database update failed.");
@@ -615,24 +710,23 @@ const AdminPanel = () => {
                       <td>{item.date}</td>
                       <td>
                         <div className="admin-action-row">
-                          <button
-                            type="button"
-                            className="admin-action admin-action-approve"
-                            onClick={() =>
-                              changeItemStatus(item.id, "resolved", "resolved")
-                            }
-                          >
-                            Resolve
-                          </button>
-                          <button
-                            type="button"
-                            className="admin-action admin-action-reject"
-                            onClick={() =>
-                              changeItemStatus(item.id, "open", "open")
-                            }
-                          >
-                            Reopen
-                          </button>
+                          {item.rawStatus === "resolved" ? (
+                            <button
+                              type="button"
+                              className="admin-action admin-action-reject"
+                              onClick={() => changeItemStatus(item.id, "open")}
+                            >
+                              Reopen
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="admin-action admin-action-approve"
+                              onClick={() => changeItemStatus(item.id, "resolved")}
+                            >
+                              Resolve
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="admin-action"
@@ -891,7 +985,7 @@ const AdminPanel = () => {
             <thead>
               <tr>
                 <th>Reason</th>
-                <th>Reported Item/User</th>
+                <th>Reported Student</th>
                 <th>Severity</th>
                 <th>Status</th>
                 <th>Actions</th>
@@ -902,7 +996,7 @@ const AdminPanel = () => {
                 ? filteredFlags.map((flag) => (
                     <tr key={flag.id}>
                       <td>{flag.reason}</td>
-                      <td>{flag.target}</td>
+                      <td>{flag.reportedStudent}</td>
                       <td>{flag.severity}</td>
                       <td>{flag.status}</td>
                       <td>
@@ -914,13 +1008,27 @@ const AdminPanel = () => {
                           >
                             Review
                           </button>
-                          <button
-                            type="button"
-                            className="admin-action admin-action-delete"
-                            onClick={() => removeContentFromFlag(flag)}
-                          >
-                            Remove Content
-                          </button>
+                          {flag.reportType === "chat" ? (
+                            <button
+                              type="button"
+                              className="admin-action admin-action-delete"
+                              onClick={() =>
+                                flag.rawStatus === "chat_suspended"
+                                  ? enableChatFromFlag(flag)
+                                  : suspendChatFromFlag(flag)
+                              }
+                            >
+                              {flag.rawStatus === "chat_suspended" ? "Enable Chat" : "Suspend Chat"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="admin-action admin-action-delete"
+                              onClick={() => removeContentFromFlag(flag)}
+                            >
+                              Remove Content
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="admin-action admin-action-reject"
@@ -1257,8 +1365,14 @@ const AdminPanel = () => {
       ) : null}
 
       {selectedFlag ? (
-        <div className="admin-modal-backdrop" role="presentation">
-          <div className="admin-modal admin-modal-item" role="dialog" aria-modal="true" aria-label="Report details">
+        <div className="admin-modal-backdrop" role="presentation" onClick={() => setSelectedFlag(null)}>
+          <div
+            className="admin-modal admin-modal-item"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Report details"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="admin-modal-header">
               <div>
                 <p className="admin-modal-kicker">Report Details</p>
@@ -1277,6 +1391,10 @@ const AdminPanel = () => {
               Report Details
               <textarea value={selectedFlag.body || selectedFlag.target} readOnly rows={3} />
             </label>
+            <div className="admin-item-modal-grid">
+              <article className="admin-item-fact"><span>Reported Student</span><strong>{selectedFlag.reportedStudent}</strong></article>
+              <article className="admin-item-fact"><span>Target</span><strong>{selectedFlag.relatedLabel}</strong></article>
+            </div>
             {selectedFlag.itemDetails ? (
               <>
                 <div className="admin-modal-header" style={{ marginTop: "16px" }}>
@@ -1325,6 +1443,19 @@ const AdminPanel = () => {
               </>
             ) : null}
             <div className="admin-modal-actions">
+              {selectedFlag.reportType === "chat" ? (
+                <button
+                  type="button"
+                  className="admin-action admin-action-delete"
+                  onClick={() =>
+                    selectedFlag.rawStatus === "chat_suspended"
+                      ? enableChatFromFlag(selectedFlag)
+                      : suspendChatFromFlag(selectedFlag)
+                  }
+                >
+                  {selectedFlag.rawStatus === "chat_suspended" ? "Enable Chat" : "Suspend Chat"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="admin-action"

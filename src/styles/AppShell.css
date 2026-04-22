@@ -1674,6 +1674,20 @@ html[data-theme="light"] .match-card-action,
   box-shadow: 0 10px 18px rgba(93, 214, 44, 0.18);
 }
 
+.report-primary-button:disabled {
+  cursor: wait;
+  opacity: 0.82;
+}
+
+.report-submit-spinner {
+  width: 0.92rem;
+  height: 0.92rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #ffffff;
+  animation: reportSubmitSpin 0.75s linear infinite;
+}
+
 .report-secondary-button {
   border: 1px solid rgba(93, 214, 44, 0.22);
   background: rgba(255, 255, 255, 0.03);
@@ -1697,6 +1711,16 @@ html[data-theme="light"] .match-card-action,
 
 .report-found-page .report-primary-button {
   background: linear-gradient(145deg, #7ce84a, #4fc428);
+}
+
+@keyframes reportSubmitSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .report-crop-backdrop {

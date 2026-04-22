@@ -38,6 +38,11 @@ const formatDate = (value) => {
   return date.toISOString().slice(0, 10);
 };
 
+const parseConversationId = (target = "") => {
+  const match = String(target || "").match(/^conversation:(.+)$/i);
+  return match?.[1] || "";
+};
+
 const mapItem = (item) => {
   const images = Array.isArray(item.item_images) ? item.item_images : [];
   const primary = images.find((entry) => entry.is_primary) || images[0];
@@ -85,19 +90,48 @@ const mapClaim = (claim) => ({
   rawStatus: claim.status || "pending",
 });
 
-const mapFlag = (flag) => {
+const mapFlag = (flag, reporterMap = new Map()) => {
   const images = Array.isArray(flag.items?.item_images)
     ? flag.items.item_images
     : [];
   const primary = images.find((entry) => entry.is_primary) || images[0];
+  const conversationId = parseConversationId(flag.target);
+  const isChatReport = Boolean(conversationId);
+  const reporter = reporterMap.get(flag.user_id) || null;
+
+  const relatedHref = isChatReport
+    ? `/messages?conv=${encodeURIComponent(conversationId)}`
+    : flag.item_id
+      ? `/details/${flag.item_id}`
+      : "";
+  const itemHref = flag.item_id ? `/details/${flag.item_id}` : "";
+  const conversationHref = isChatReport
+    ? `/messages?conv=${encodeURIComponent(conversationId)}`
+    : "";
 
   return {
     id: flag.id,
     userId: flag.user_id,
+    reportedStudent:
+      reporter?.full_name ||
+      reporter?.email ||
+      flag.user_id ||
+      "Unknown student",
+    reportedStudentEmail: reporter?.email || "",
     itemId: flag.item_id,
     reason: flag.reason || flag.title || "Reported issue",
     target: flag.target || flag.body || "No target details",
     body: flag.body || "",
+    reportType: isChatReport ? "chat" : "content",
+    conversationId,
+    relatedHref,
+    itemHref,
+    conversationHref,
+    relatedLabel: isChatReport
+      ? `Conversation ${conversationId}`
+      : flag.item_id
+        ? `Item ${flag.item_id}`
+        : "No linked record",
     severity: formatLabel(flag.severity || flag.priority || "medium"),
     rawSeverity: flag.severity || "medium",
     status: formatLabel(flag.status || "open"),
@@ -331,7 +365,115 @@ export const listAdminFlags = async () => {
     throw error;
   }
 
-  return (data || []).map(mapFlag);
+  const userIds = [
+    ...new Set((data || []).map((entry) => entry.user_id).filter(Boolean)),
+  ];
+  const reporterMap = new Map();
+
+  if (userIds.length) {
+    const { data: reporters, error: reporterError } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", userIds);
+
+    if (!reporterError) {
+      (reporters || []).forEach((profile) => {
+        reporterMap.set(profile.id, profile);
+      });
+    }
+  }
+
+  return (data || []).map((flag) => mapFlag(flag, reporterMap));
+};
+
+export const suspendChatConversationFromReport = async ({
+  reportId,
+  conversationId,
+  reason,
+}) => {
+  assertSupabase();
+
+  if (!reportId || !conversationId) {
+    throw new Error("A report and conversation are required to suspend chat.");
+  }
+
+  const normalizedReason = String(reason || "").trim();
+  const suspensionMessage =
+    normalizedReason || "This chat was reported for safety concerns.";
+
+  const { error: conversationError } = await supabase
+    .from("message_conversations")
+    .update({
+      blocked: true,
+      reported: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", conversationId);
+
+  if (conversationError) {
+    throw conversationError;
+  }
+
+  const { error: reportError } = await supabase
+    .from("reports")
+    .update({
+      status: "chat_suspended",
+      body: suspensionMessage,
+    })
+    .eq("id", reportId);
+
+  if (reportError) {
+    throw reportError;
+  }
+
+  window.dispatchEvent(new Event("lforls:messages-updated"));
+};
+
+export const toggleChatConversationSuspension = async ({
+  reportId,
+  conversationId,
+  reason,
+  shouldSuspend = true,
+}) => {
+  assertSupabase();
+
+  if (!reportId || !conversationId) {
+    throw new Error("A report and conversation are required.");
+  }
+
+  if (shouldSuspend) {
+    return suspendChatConversationFromReport({
+      reportId,
+      conversationId,
+      reason,
+    });
+  }
+
+  const { error: conversationError } = await supabase
+    .from("message_conversations")
+    .update({
+      blocked: false,
+      reported: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", conversationId);
+
+  if (conversationError) {
+    throw conversationError;
+  }
+
+  const { error: reportError } = await supabase
+    .from("reports")
+    .update({
+      status: "open",
+    })
+    .eq("id", reportId);
+
+  if (reportError) {
+    throw reportError;
+  }
+
+  window.dispatchEvent(new Event("lforls:messages-updated"));
 };
 
 export const loadAdminPanelData = async () => {

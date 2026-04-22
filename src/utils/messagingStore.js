@@ -12,6 +12,16 @@ const assertSupabase = () => {
   }
 };
 
+const formatSafetyReason = (reason = "") => {
+  const normalized = String(reason || "").trim();
+  if (!normalized) {
+    return "This chat was reported for safety concerns.";
+  }
+
+  const lower = normalized.toLowerCase();
+  return `This chat was reported as ${lower}.`;
+};
+
 const toConversationCard = (row) => ({
   id: row.id,
   itemId: row.item_id || null,
@@ -26,6 +36,7 @@ const toConversationCard = (row) => ({
   updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
   preview: row.preview || "No messages yet",
   previewTime: row.preview_time || row.updated_at || new Date().toISOString(),
+  suspensionReason: row.suspension_reason || "",
 });
 
 export const messagesUpdatedEventName = MESSAGES_UPDATED_EVENT;
@@ -115,6 +126,37 @@ export const getConversations = async ({
     throw messageError;
   }
 
+  const moderationTargets = conversationIds.map(
+    (conversationId) => `conversation:${conversationId}`,
+  );
+  const moderationMap = new Map();
+
+  if (moderationTargets.length) {
+    const { data: moderationRows, error: moderationError } = await supabase
+      .from("reports")
+      .select("target, reason, body, status, created_at")
+      .in("target", moderationTargets)
+      .order("created_at", { ascending: false });
+
+    if (!moderationError) {
+      (moderationRows || []).forEach((entry) => {
+        if (!entry?.target || moderationMap.has(entry.target)) {
+          return;
+        }
+
+        if (entry.status !== "chat_suspended") {
+          return;
+        }
+
+        const body = String(entry.body || "").trim();
+        moderationMap.set(
+          entry.target,
+          body || formatSafetyReason(entry.reason),
+        );
+      });
+    }
+  }
+
   const previewMap = new Map();
   (latestMessages || []).forEach((entry) => {
     if (!previewMap.has(entry.conversation_id)) {
@@ -132,6 +174,7 @@ export const getConversations = async ({
         ...entry,
         item_type: item?.type || null,
         reporter_id: item?.reporter_id || null,
+        suspension_reason: moderationMap.get(`conversation:${entry.id}`) || "",
         ...(previewMap.get(entry.id) || {}),
       });
     })
@@ -215,7 +258,9 @@ export const reportConversation = async ({
   itemId,
   itemName,
   userId,
-  details,
+  reason,
+  customCategory,
+  message,
 }) => {
   assertSupabase();
 
@@ -223,13 +268,28 @@ export const reportConversation = async ({
     return;
   }
 
+  const normalizedReason = String(reason || "").trim();
+  const normalizedCustomCategory = String(customCategory || "").trim();
+  const normalizedMessage = String(message || "").trim();
+  const finalReason =
+    normalizedReason === "custom"
+      ? normalizedCustomCategory || "Custom category"
+      : normalizedReason || "Messaging safety report";
+
+  const detailLines = [
+    normalizedReason === "custom"
+      ? `Custom category: ${normalizedCustomCategory || "Not provided"}`
+      : null,
+    normalizedMessage ? `Message: ${normalizedMessage}` : null,
+  ].filter(Boolean);
+
   const payload = {
     user_id: userId,
     item_id: itemId || null,
     item_name: itemName || "Conversation",
-    reason: "Messaging safety report",
+    reason: finalReason,
     target: `conversation:${conversationId}`,
-    body: details || "User reported from messaging tab.",
+    body: detailLines.join("\n") || "User reported from messaging tab.",
     severity: "high",
     status: "open",
   };

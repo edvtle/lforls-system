@@ -193,7 +193,10 @@ const ReportFoundItem = () => {
     updateField("contactMethod", value);
     if (isEmailContactMethod(value) && accountEmail) {
       updateField("contactValue", accountEmail);
+      return;
     }
+
+    updateField("contactValue", "");
   };
 
   const persistDraft = () => {
@@ -772,7 +775,11 @@ const ReportFoundItem = () => {
                 spellCheck={false}
               />
               {errors.contactValue ? <em>{errors.contactValue}</em> : null}
-              <small>This stays private and is never shown publicly.</small>
+              <small>
+                {form.contactMethod === "Email"
+                  ? "This stays private and is never shown publicly."
+                  : "Format: 09XX XXX XXXX. This stays private and is never shown publicly."}
+              </small>
             </label>
 
             <label className="report-check-field">
@@ -812,8 +819,9 @@ const ReportFoundItem = () => {
                 Next <FontAwesomeIcon icon={faChevronRight} />
               </button>
             ) : (
-              <button type="submit" className="report-primary-button">
-                <FontAwesomeIcon icon={faPaperPlane} /> {isSubmitting ? "Submitting..." : "Submit report"}
+              <button type="submit" className="report-primary-button" disabled={isSubmitting}>
+                {isSubmitting ? <span className="report-submit-spinner" aria-hidden="true" /> : <FontAwesomeIcon icon={faPaperPlane} />}
+                {isSubmitting ? "Submitting..." : "Submit report"}
               </button>
             )}
           </div>

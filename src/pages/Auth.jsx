@@ -322,7 +322,7 @@ const Auth = () => {
               </AnimatedContent>
 
               <AnimatedContent distance={40} delay={0.18} className="auth-motion-block auth-form-motion">
-                <form className="auth-form" onSubmit={handleAuthSubmit}>
+                <form className="auth-form" onSubmit={handleAuthSubmit} autoComplete="on">
                   {isSignup && (
                     <InputText
                       name="name"
@@ -338,6 +338,7 @@ const Auth = () => {
                       <InputText
                         name="email"
                         label="Email"
+                        type="email"
                         value={isSignup ? signupData.email : loginData.email}
                         onChange={(event) => {
                           const nextValue = event.target.value;
@@ -348,6 +349,7 @@ const Auth = () => {
                           setLoginData((current) => ({ ...current, email: nextValue }));
                         }}
                         placeholder="Enter your email address"
+                        autoComplete={isSignup ? "email" : "username"}
                       />
 
                       <InputText
@@ -364,6 +366,7 @@ const Auth = () => {
                           setLoginData((current) => ({ ...current, password: nextValue }));
                         }}
                         placeholder="Enter your password"
+                        autoComplete={isSignup ? "new-password" : "current-password"}
                         trailing={<FontAwesomeIcon icon={showPassword ? faEyeSlash : faEye} className="auth-eye-icon" aria-hidden="true" focusable="false" />}
                         onTrailingClick={() => setShowPassword((current) => !current)}
                       />
@@ -374,9 +377,11 @@ const Auth = () => {
                     <InputText
                       name="reset-email"
                       label="Email"
+                      type="email"
                       value={resetData.email}
                       onChange={(event) => setResetData((current) => ({ ...current, email: event.target.value }))}
                       placeholder="Enter your account email"
+                      autoComplete="email"
                     />
                   )}
 
@@ -385,9 +390,11 @@ const Auth = () => {
                       <InputText
                         name="verify-email"
                         label="Email"
+                        type="email"
                         value={resetData.email}
                         onChange={(event) => setResetData((current) => ({ ...current, email: event.target.value }))}
                         placeholder="Enter your account email"
+                        autoComplete="email"
                         disabled
                       />
                       <InputText
@@ -418,9 +425,11 @@ const Auth = () => {
                       <InputText
                         name="reset-email-confirmed"
                         label="Email"
+                        type="email"
                         value={resetData.email}
                         onChange={(event) => setResetData((current) => ({ ...current, email: event.target.value }))}
                         placeholder="Enter your account email"
+                        autoComplete="email"
                         disabled
                       />
                       <InputText
@@ -430,6 +439,7 @@ const Auth = () => {
                         value={resetData.newPassword}
                         onChange={(event) => setResetData((current) => ({ ...current, newPassword: event.target.value }))}
                         placeholder="Enter your new password"
+                        autoComplete="new-password"
                         trailing={<FontAwesomeIcon icon={showPassword ? faEyeSlash : faEye} className="auth-eye-icon" aria-hidden="true" focusable="false" />}
                         onTrailingClick={() => setShowPassword((current) => !current)}
                       />
@@ -440,6 +450,7 @@ const Auth = () => {
                         value={resetData.confirmPassword}
                         onChange={(event) => setResetData((current) => ({ ...current, confirmPassword: event.target.value }))}
                         placeholder="Confirm your new password"
+                        autoComplete="new-password"
                       />
                     </>
                   )}
