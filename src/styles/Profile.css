@@ -574,18 +574,15 @@
   color: #111111;
 }
 
-.profile-page.profile-theme-light .page-card,
-.profile-page.profile-theme-light .profile-content-card,
-.profile-page.profile-theme-light .profile-nav-card,
+
 .profile-page.profile-theme-light .profile-timeline-card,
 .profile-page.profile-theme-light .profile-header-card,
 .profile-page.profile-theme-light .profile-stats-card,
 .profile-page.profile-theme-light .profile-report-card,
 .profile-page.profile-theme-light .profile-settings-group {
-  background: #f9fbfd;
   border-color: rgba(0, 0, 0, 0.12);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
-}
+} 
 
 .profile-page.profile-theme-light .profile-nav-item,
 .profile-page.profile-theme-light .profile-inline-btn,
@@ -1017,7 +1014,7 @@
 .profile-page.profile-theme-light .profile-edit-form .profile-notify-field {
   border-color: rgba(0, 0, 0, 0.1);
   background: rgba(255, 255, 255, 0.88);
-}
+} 
 
 .profile-page.profile-theme-light .profile-edit-form .details-form-field input:not([type="checkbox"]),
 .profile-page.profile-theme-light .profile-edit-form .details-form-field select,

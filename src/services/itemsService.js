@@ -14,9 +14,26 @@ const isSchemaMismatchError = (error) => {
   );
 };
 
+const getItemGallery = (item) => {
+  const images = Array.isArray(item?.item_images) ? item.item_images : [];
+
+  const sorted = [...images].sort((left, right) => {
+    if (left?.is_primary && !right?.is_primary) return -1;
+    if (!left?.is_primary && right?.is_primary) return 1;
+    return 0;
+  });
+
+  const urls = sorted
+    .map((entry) => String(entry?.public_url || "").trim())
+    .filter(Boolean);
+
+  const uniqueUrls = [...new Set(urls)];
+  return uniqueUrls.length ? uniqueUrls : [ITEM_FALLBACK_IMAGE];
+};
+
 const toCardItem = (item) => {
-  const images = Array.isArray(item.item_images) ? item.item_images : [];
-  const primary = images.find((entry) => entry.is_primary) || images[0];
+  const gallery = getItemGallery(item);
+  const primary = gallery[0] || ITEM_FALLBACK_IMAGE;
 
   return {
     id: item.id,
@@ -26,7 +43,8 @@ const toCardItem = (item) => {
     date: item.date_lost_or_found || item.created_at?.slice(0, 10) || "",
     status: item.type === "found" ? "Found" : "Lost",
     matchPercent: Math.max(0, Math.min(100, Number(item.match_score || 0))),
-    image: primary?.public_url || ITEM_FALLBACK_IMAGE,
+    image: primary,
+    gallery,
     description: item.description || "",
     color: item.color || "",
     brand: item.brand || "",

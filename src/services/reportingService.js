@@ -239,7 +239,7 @@ const buildItemPayload = ({
   notify_on_match: Boolean(notifyOnMatch),
 });
 
-const uploadItemImage = async ({ reporterId, itemId, file }) => {
+const uploadItemImage = async ({ reporterId, itemId, file, isPrimary }) => {
   const safeName = sanitizeFilename(file.name || "upload.jpg");
   const storagePath = `${reporterId}/${itemId}/${Date.now()}-${safeName}`;
 
@@ -261,12 +261,33 @@ const uploadItemImage = async ({ reporterId, itemId, file }) => {
     item_id: itemId,
     storage_path: storagePath,
     public_url: publicUrl,
-    is_primary: true,
+    is_primary: Boolean(isPrimary),
   });
 
   if (imageError) throw imageError;
 
   return { storagePath, publicUrl };
+};
+
+const uploadItemImages = async ({ reporterId, itemId, files = [] }) => {
+  const validFiles = files.filter((file) => file instanceof File).slice(0, 3);
+
+  if (!validFiles.length) {
+    return [];
+  }
+
+  const uploads = [];
+  for (let index = 0; index < validFiles.length; index += 1) {
+    const uploaded = await uploadItemImage({
+      reporterId,
+      itemId,
+      file: validFiles[index],
+      isPrimary: index === 0,
+    });
+    uploads.push(uploaded);
+  }
+
+  return uploads;
 };
 
 const createMatchNotifications = async ({ currentItem, matchRows }) => {
@@ -363,7 +384,7 @@ const createMatchesForItem = async (currentItem) => {
   return ranked;
 };
 
-export const submitItemReport = async ({ reporterId, type, payload, file }) => {
+export const submitItemReport = async ({ reporterId, type, payload, file, files }) => {
   assertSupabase();
 
   const itemPayload = buildItemPayload({
@@ -413,20 +434,24 @@ export const submitItemReport = async ({ reporterId, type, payload, file }) => {
 
   if (insertError) throw insertError;
 
-  let uploadedImage = null;
-  if (file instanceof File) {
-    uploadedImage = await uploadItemImage({
-      reporterId,
-      itemId: createdItem.id,
-      file,
-    });
-  }
+  const uploadFiles = Array.isArray(files)
+    ? files
+    : file instanceof File
+      ? [file]
+      : [];
+
+  const uploadedImages = await uploadItemImages({
+    reporterId,
+    itemId: createdItem.id,
+    files: uploadFiles,
+  });
 
   const matches = await createMatchesForItem(createdItem);
 
   return {
     item: createdItem,
-    uploadedImage,
+    uploadedImage: uploadedImages[0] || null,
+    uploadedImages,
     matches,
   };
 };

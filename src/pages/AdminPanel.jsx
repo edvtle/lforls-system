@@ -10,6 +10,7 @@ import {
   faFlag,
   faGavel,
   faMagnifyingGlassPlus,
+  faTrashCan,
   faXmark,
   faShield,
   faUsers,
@@ -121,6 +122,8 @@ const AdminPanel = () => {
   });
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedFlag, setSelectedFlag] = useState(null);
+  const [selectedItemImage, setSelectedItemImage] = useState("");
+  const [selectedFlagImage, setSelectedFlagImage] = useState("");
   const [reportSuccessModal, setReportSuccessModal] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [warnUserFlag, setWarnUserFlag] = useState(null);
@@ -183,6 +186,28 @@ const AdminPanel = () => {
   useEffect(() => {
     refreshPanel();
   }, []);
+
+  useEffect(() => {
+    if (!selectedItem) {
+      setSelectedItemImage("");
+      return;
+    }
+
+    const gallery = Array.isArray(selectedItem.gallery) ? selectedItem.gallery : [];
+    setSelectedItemImage(gallery[0] || selectedItem.image || "");
+  }, [selectedItem]);
+
+  useEffect(() => {
+    if (!selectedFlag?.itemDetails) {
+      setSelectedFlagImage("");
+      return;
+    }
+
+    const gallery = Array.isArray(selectedFlag.itemDetails.gallery)
+      ? selectedFlag.itemDetails.gallery
+      : [];
+    setSelectedFlagImage(gallery[0] || selectedFlag.itemDetails.image || "");
+  }, [selectedFlag]);
 
   const { items, users, claims, flags, stats, dailyReports, activityLogs } =
     panelData;
@@ -604,6 +629,7 @@ const AdminPanel = () => {
                         color: "#e8f7e0",
                       }}
                       labelStyle={{ color: "#bcd4b4", fontWeight: 700 }}
+                      itemStyle={{ color: "#f4fff0", fontWeight: 700 }}
                     />
                     <Bar dataKey="reports" radius={[8, 8, 2, 2]} maxBarSize={28}>
                       {dailyReports.map((entry, index) => (
@@ -736,10 +762,12 @@ const AdminPanel = () => {
                           </button>
                           <button
                             type="button"
-                            className="admin-action admin-action-delete"
+                            className="admin-action admin-action-icon-delete"
                             onClick={() => removeItem(item.id)}
+                            aria-label={`Delete item ${item.name}`}
+                            title="Delete item"
                           >
-                            Delete
+                            <FontAwesomeIcon icon={faTrashCan} />
                           </button>
                         </div>
                       </td>
@@ -866,10 +894,12 @@ const AdminPanel = () => {
                           </button>
                           <button
                             type="button"
-                            className="admin-action admin-action-delete"
+                            className="admin-action admin-action-icon-delete"
                             onClick={() => removeUser(user.id)}
+                            aria-label={`Delete user ${user.name}`}
+                            title="Delete user"
                           >
-                            Delete User
+                            <FontAwesomeIcon icon={faTrashCan} />
                           </button>
                         </div>
                       </td>
@@ -1000,7 +1030,7 @@ const AdminPanel = () => {
                       <td>{flag.severity}</td>
                       <td>{flag.status}</td>
                       <td>
-                        <div className="admin-action-row">
+                        <div className="admin-action-row admin-action-row-reports">
                           <button
                             type="button"
                             className="admin-action"
@@ -1011,7 +1041,7 @@ const AdminPanel = () => {
                           {flag.reportType === "chat" ? (
                             <button
                               type="button"
-                              className="admin-action admin-action-delete"
+                              className="admin-action admin-action-delete admin-action-report-main"
                               onClick={() =>
                                 flag.rawStatus === "chat_suspended"
                                   ? enableChatFromFlag(flag)
@@ -1023,7 +1053,7 @@ const AdminPanel = () => {
                           ) : (
                             <button
                               type="button"
-                              className="admin-action admin-action-delete"
+                              className="admin-action admin-action-delete admin-action-report-main"
                               onClick={() => removeContentFromFlag(flag)}
                             >
                               Remove Content
@@ -1061,6 +1091,19 @@ const AdminPanel = () => {
         </div>
       </article>
     </AnimatedContent>
+  );
+
+  const selectedItemGallery = Array.isArray(selectedItem?.gallery)
+    ? selectedItem.gallery
+    : [];
+  const selectedItemImageIndex = selectedItemGallery.findIndex(
+    (image) => image === selectedItemImage,
+  );
+  const selectedFlagGallery = Array.isArray(selectedFlag?.itemDetails?.gallery)
+    ? selectedFlag.itemDetails.gallery
+    : [];
+  const selectedFlagImageIndex = selectedFlagGallery.findIndex(
+    (image) => image === selectedFlagImage,
   );
 
   return (
@@ -1325,17 +1368,39 @@ const AdminPanel = () => {
                 <span className="admin-review">{selectedItem.lifecycleStatus}</span>
               </div>
             </div>
-            <div className="admin-modal-image-wrap">
-              <img src={selectedItem.image} alt={selectedItem.name} className="admin-modal-image" />
-              <button
-                type="button"
-                className="admin-modal-image-expand"
-                title="Expand image"
-                aria-label="Expand image in modal"
-                onClick={() => openImagePreview(selectedItem.image, selectedItem.name)}
-              >
-                <FontAwesomeIcon icon={faMagnifyingGlassPlus} />
-              </button>
+            <div className="admin-modal-media-shell">
+              <div className="admin-modal-image-wrap">
+                <img src={selectedItemImage || selectedItem.image} alt={selectedItem.name} className="admin-modal-image" />
+                <button
+                  type="button"
+                  className="admin-modal-image-expand"
+                  title="Expand image"
+                  aria-label="Expand image in modal"
+                  onClick={() => openImagePreview(selectedItemImage || selectedItem.image, selectedItem.name)}
+                >
+                  <FontAwesomeIcon icon={faMagnifyingGlassPlus} />
+                </button>
+                {selectedItemGallery.length > 1 ? (
+                  <span className="admin-modal-image-count">
+                    {(selectedItemImageIndex >= 0 ? selectedItemImageIndex : 0) + 1} / {selectedItemGallery.length}
+                  </span>
+                ) : null}
+              </div>
+              {selectedItem.gallery?.length > 1 ? (
+                <div className="admin-modal-image-thumbs" aria-label="Item image thumbnails">
+                  {selectedItem.gallery.map((image, index) => (
+                    <button
+                      key={`${selectedItem.id}-gallery-${index}`}
+                      type="button"
+                      className={`admin-modal-thumb ${selectedItemImage === image ? "admin-modal-thumb-active" : ""}`}
+                      onClick={() => setSelectedItemImage(image)}
+                      aria-label={`View item image ${index + 1}`}
+                    >
+                      <img src={image} alt="" />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div className="admin-item-modal-grid">
               <article className="admin-item-fact"><span>ID</span><strong>{selectedItem.id}</strong></article>
@@ -1348,6 +1413,7 @@ const AdminPanel = () => {
               <article className="admin-item-fact"><span>Contact</span><strong>{selectedItem.contactMethod} - {selectedItem.contactValue}</strong></article>
             </div>
             <label className="admin-modal-field">
+              <span className="admin-item-section-title">Description</span>
               Description
               <textarea value={selectedItem.description} readOnly rows={4} />
             </label>
@@ -1367,7 +1433,7 @@ const AdminPanel = () => {
       {selectedFlag ? (
         <div className="admin-modal-backdrop" role="presentation" onClick={() => setSelectedFlag(null)}>
           <div
-            className="admin-modal admin-modal-item"
+            className="admin-modal admin-modal-item admin-modal-report"
             role="dialog"
             aria-modal="true"
             aria-label="Report details"
@@ -1377,6 +1443,7 @@ const AdminPanel = () => {
               <div>
                 <p className="admin-modal-kicker">Report Details</p>
                 <h3>{selectedFlag.reason}</h3>
+                <p className="admin-report-subtitle">Moderation summary and linked evidence</p>
               </div>
               <div className="admin-item-badges">
                 <span className={`admin-review admin-review-${selectedFlag.rawSeverity.toLowerCase()}`}>
@@ -1387,20 +1454,24 @@ const AdminPanel = () => {
                 </span>
               </div>
             </div>
-            <label className="admin-modal-field">
-              Report Details
-              <textarea value={selectedFlag.body || selectedFlag.target} readOnly rows={3} />
-            </label>
-            <div className="admin-item-modal-grid">
-              <article className="admin-item-fact"><span>Reported Student</span><strong>{selectedFlag.reportedStudent}</strong></article>
-              <article className="admin-item-fact"><span>Target</span><strong>{selectedFlag.relatedLabel}</strong></article>
-            </div>
+            <section className="admin-report-section">
+              <p className="admin-item-section-title">Report Summary</p>
+              <div className="admin-report-body">
+                {selectedFlag.body || selectedFlag.target}
+              </div>
+              <div className="admin-item-modal-grid">
+                <article className="admin-item-fact"><span>Reported Student</span><strong>{selectedFlag.reportedStudent}</strong></article>
+                <article className="admin-item-fact"><span>Target</span><strong>{selectedFlag.relatedLabel}</strong></article>
+              </div>
+            </section>
+
             {selectedFlag.itemDetails ? (
-              <>
-                <div className="admin-modal-header" style={{ marginTop: "16px" }}>
+              <section className="admin-report-section">
+                <div className="admin-modal-header">
                   <div>
                     <p className="admin-modal-kicker">Related Item</p>
                     <h3>{selectedFlag.itemDetails.name}</h3>
+                    <p className="admin-report-subtitle">Click thumbnails to inspect all uploaded evidence images</p>
                   </div>
                   <div className="admin-item-badges">
                     <span className={`admin-status admin-status-${selectedFlag.itemDetails.typeLabel.toLowerCase()}`}>
@@ -1409,22 +1480,44 @@ const AdminPanel = () => {
                     <span className="admin-review">{selectedFlag.itemDetails.lifecycleStatus}</span>
                   </div>
                 </div>
-                <div className="admin-modal-image-wrap">
-                  <img src={selectedFlag.itemDetails.image} alt={selectedFlag.itemDetails.name} className="admin-modal-image" />
-                  <button
-                    type="button"
-                    className="admin-modal-image-expand"
-                    title="Expand image"
-                    aria-label="Expand image in modal"
-                    onClick={() =>
-                      openImagePreview(
-                        selectedFlag.itemDetails.image,
-                        selectedFlag.itemDetails.name,
-                      )
-                    }
-                  >
-                    <FontAwesomeIcon icon={faMagnifyingGlassPlus} />
-                  </button>
+                <div className="admin-modal-media-shell">
+                  <div className="admin-modal-image-wrap">
+                    <img src={selectedFlagImage || selectedFlag.itemDetails.image} alt={selectedFlag.itemDetails.name} className="admin-modal-image" />
+                    <button
+                      type="button"
+                      className="admin-modal-image-expand"
+                      title="Expand image"
+                      aria-label="Expand image in modal"
+                      onClick={() =>
+                        openImagePreview(
+                          selectedFlagImage || selectedFlag.itemDetails.image,
+                          selectedFlag.itemDetails.name,
+                        )
+                      }
+                    >
+                      <FontAwesomeIcon icon={faMagnifyingGlassPlus} />
+                    </button>
+                    {selectedFlagGallery.length > 1 ? (
+                      <span className="admin-modal-image-count">
+                        {(selectedFlagImageIndex >= 0 ? selectedFlagImageIndex : 0) + 1} / {selectedFlagGallery.length}
+                      </span>
+                    ) : null}
+                  </div>
+                  {selectedFlag.itemDetails.gallery?.length > 1 ? (
+                    <div className="admin-modal-image-thumbs" aria-label="Reported item image thumbnails">
+                      {selectedFlag.itemDetails.gallery.map((image, index) => (
+                        <button
+                          key={`${selectedFlag.itemDetails.id}-gallery-${index}`}
+                          type="button"
+                          className={`admin-modal-thumb ${selectedFlagImage === image ? "admin-modal-thumb-active" : ""}`}
+                          onClick={() => setSelectedFlagImage(image)}
+                          aria-label={`View reported item image ${index + 1}`}
+                        >
+                          <img src={image} alt="" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="admin-item-modal-grid">
                   <article className="admin-item-fact"><span>ID</span><strong>{selectedFlag.itemDetails.id}</strong></article>
@@ -1437,11 +1530,15 @@ const AdminPanel = () => {
                   <article className="admin-item-fact"><span>Contact</span><strong>{selectedFlag.itemDetails.contactMethod} - {selectedFlag.itemDetails.contactValue}</strong></article>
                 </div>
                 <label className="admin-modal-field">
-                  Item Description
+                  <span className="admin-item-section-title">Item Description</span>
                   <textarea value={selectedFlag.itemDetails.description} readOnly rows={4} />
                 </label>
-              </>
-            ) : null}
+              </section>
+            ) : (
+              <section className="admin-report-section">
+                <p className="admin-report-empty">No linked item evidence was found for this report.</p>
+              </section>
+            )}
             <div className="admin-modal-actions">
               {selectedFlag.reportType === "chat" ? (
                 <button
