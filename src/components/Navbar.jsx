@@ -83,8 +83,8 @@ const Navbar = () => {
 
         <button
           type="button"
-          className="app-mobile-menu-toggle"
-          aria-label="Open account menu"
+          className={`app-mobile-menu-toggle ${isMobileMenuOpen ? "app-mobile-menu-toggle-open" : ""}`}
+          aria-label={isMobileMenuOpen ? "Close account menu" : "Open account menu"}
           aria-expanded={isMobileMenuOpen}
           onClick={() => setIsMobileMenuOpen((open) => !open)}
         >
@@ -108,7 +108,7 @@ const Navbar = () => {
       </nav>
 
       {isMobileMenuOpen ? (
-        <div className="app-mobile-menu-panel">
+        <div className="app-mobile-menu-panel app-mobile-menu-panel-enter">
           <NavLink
             to="/notifications"
             className={({ isActive }) => `app-link ${isActive ? "app-link-active" : ""}`}

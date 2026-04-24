@@ -661,3 +661,71 @@ html[data-theme="light"] .empty-illustration,
     font-size: 0.77rem;
   }
 }
+
+@media (max-width: 560px) {
+  .home-page {
+    gap: 0.8rem;
+  }
+
+  .search-panel {
+    gap: 0.65rem;
+  }
+
+  .search-input {
+    min-height: 2.85rem;
+    padding-left: 3rem;
+    font-size: 0.86rem;
+  }
+
+  .search-input-icon {
+    left: 0.9rem;
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+
+  .search-select {
+    min-height: 2.6rem;
+    font-size: 0.8rem;
+  }
+
+  .home-promo {
+    border-radius: 0.95rem;
+  }
+
+  .home-promo-body {
+    gap: 0.72rem;
+    padding: 0;
+  }
+
+  .home-promo-figure {
+    min-height: 12.8rem;
+    border-radius: 0.85rem;
+  }
+
+  .hero-title {
+    font-size: clamp(1.45rem, 9.5vw, 1.95rem);
+    max-width: 11.5ch;
+  }
+
+  .hero-subtitle {
+    font-size: 0.86rem;
+    max-width: 100%;
+  }
+
+  .hero-actions {
+    max-width: 100%;
+    gap: 0.65rem;
+  }
+
+  .home-results .items-grid-compact .item-image-wrap {
+    aspect-ratio: 16 / 7.4;
+  }
+
+  .home-results .items-grid-compact .item-name {
+    font-size: 0.8rem;
+  }
+
+  .home-results .items-grid-compact .item-meta {
+    font-size: 0.72rem;
+  }
+}
