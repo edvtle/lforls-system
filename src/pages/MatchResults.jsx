@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCloudArrowUp,
@@ -13,47 +14,12 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import MatchCard from "../components/MatchCard";
 import SelectDropdown from "../components/ui/SelectDropdown";
-import { getMarketplaceItems } from "../utils/itemStore";
+import { useAuth } from "../context/AuthContext";
+import { listRecentItems } from "../services/itemsService";
 import { rankFoundMatches } from "../utils/matching";
 import "../styles/MatchResults.css";
 
 const HIGH_CONFIDENCE_THRESHOLD = 80;
-
-const keywordCategoryMap = [
-  { keyword: "wallet", category: "Accessories" },
-  { keyword: "bag", category: "Bags" },
-  { keyword: "backpack", category: "Bags" },
-  { keyword: "phone", category: "Electronics" },
-  { keyword: "iphone", category: "Electronics" },
-  { keyword: "headphone", category: "Electronics" },
-  { keyword: "key", category: "Keys" },
-  { keyword: "id", category: "ID Cards" },
-  { keyword: "card", category: "Documents" },
-  { keyword: "bottle", category: "Personal" },
-];
-
-const detectLikelyCategory = (fileName = "") => {
-  const normalized = fileName.toLowerCase();
-  const found = keywordCategoryMap.find((entry) => normalized.includes(entry.keyword));
-  return found?.category || "Personal";
-};
-
-const detectLikelyColor = (fileName = "") => {
-  const normalized = fileName.toLowerCase();
-  const colorKeywords = ["black", "white", "blue", "red", "green", "silver", "gray", "pink", "brown"];
-  const match = colorKeywords.find((color) => normalized.includes(color));
-  return match || "Unknown";
-};
-
-const detectedLabelByCategory = {
-  Accessories: "Wallet",
-  Bags: "Bag",
-  Electronics: "Electronic Device",
-  Keys: "Keys",
-  "ID Cards": "ID Card",
-  Documents: "Document",
-  Personal: "Personal Item",
-};
 
 const toLostReport = (item) => ({
   itemName: item.name,
@@ -66,6 +32,116 @@ const toLostReport = (item) => ({
   hasImage: Boolean(item.image),
 });
 
+const normalize = (value = "") =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const words = (value = "") => normalize(value).split(" ").filter(Boolean);
+
+const getFileLabel = (fileName = "") => {
+  const withoutExtension = fileName.replace(/\.[^.]+$/, "");
+  const label = words(withoutExtension).join(" ");
+  return label || "Uploaded item";
+};
+
+const detectCategoryFromDatabase = (fileName = "", items = []) => {
+  const tokens = words(fileName);
+  if (!tokens.length) {
+    return "";
+  }
+
+  const categories = [...new Set(items.map((item) => item.category).filter(Boolean))];
+  return (
+    categories.find((category) => {
+      const categoryTokens = words(category);
+      return categoryTokens.some((token) => tokens.includes(token));
+    }) || ""
+  );
+};
+
+const classifyColor = ({ r, g, b }) => {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  if (max < 55) return "black";
+  if (min > 205 && delta < 35) return "white";
+  if (delta < 25) return "gray";
+  if (r > 150 && g > 105 && b < 90) return "brown";
+  if (r >= g && r >= b) return r - b > 50 && g < 120 ? "red" : "pink";
+  if (g >= r && g >= b) return "green";
+  if (b >= r && b >= g) return "blue";
+  return "unknown";
+};
+
+const analyzeImageColor = (file) =>
+  new Promise((resolve) => {
+    if (!file) {
+      resolve("unknown");
+      return;
+    }
+
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      const size = 48;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+
+      if (!context) {
+        URL.revokeObjectURL(objectUrl);
+        resolve("unknown");
+        return;
+      }
+
+      context.drawImage(image, 0, 0, size, size);
+      const pixels = context.getImageData(0, 0, size, size).data;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let count = 0;
+
+      for (let index = 0; index < pixels.length; index += 4) {
+        const alpha = pixels[index + 3];
+        if (alpha < 80) {
+          continue;
+        }
+
+        r += pixels[index];
+        g += pixels[index + 1];
+        b += pixels[index + 2];
+        count += 1;
+      }
+
+      URL.revokeObjectURL(objectUrl);
+      if (!count) {
+        resolve("unknown");
+        return;
+      }
+
+      resolve(
+        classifyColor({
+          r: Math.round(r / count),
+          g: Math.round(g / count),
+          b: Math.round(b / count),
+        }),
+      );
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve("unknown");
+    };
+
+    image.src = objectUrl;
+  });
+
 const truncateFileName = (fileName = "", maxLength = 32) => {
   if (!fileName || fileName.length <= maxLength) {
     return fileName;
@@ -76,16 +152,63 @@ const truncateFileName = (fileName = "", maxLength = 32) => {
 
 const MatchResults = () => {
   const fileInputRef = useRef(null);
+  const { session } = useAuth();
+  const [searchParams] = useSearchParams();
   const [selectedLostItemId, setSelectedLostItemId] = useState("");
   const [controlTab, setControlTab] = useState("select");
-  const [matchMode, setMatchMode] = useState("high");
+  const [matchMode, setMatchMode] = useState(() => (searchParams.get("mode") === "high" ? "high" : "all"));
   const [dragActive, setDragActive] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [aiDetection, setAiDetection] = useState(null);
-  const marketplaceItems = getMarketplaceItems();
+  const [marketplaceItems, setMarketplaceItems] = useState([]);
+  const [isLoadingItems, setIsLoadingItems] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  const lostItems = useMemo(() => marketplaceItems.filter((item) => item.status === "Lost"), [marketplaceItems]);
+  useEffect(() => {
+    let mounted = true;
+
+    const loadItems = async () => {
+      setIsLoadingItems(true);
+      setLoadError("");
+
+      try {
+        const items = await listRecentItems({ limit: 250 });
+        if (!mounted) {
+          return;
+        }
+
+        setMarketplaceItems(items);
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+
+        setMarketplaceItems([]);
+        setLoadError(error?.message || "Unable to load database items for matching.");
+      } finally {
+        if (mounted) {
+          setIsLoadingItems(false);
+        }
+      }
+    };
+
+    loadItems();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const currentUserId = session?.user?.id || "";
+
+  const lostItems = useMemo(
+    () =>
+      marketplaceItems.filter(
+        (item) => item.status === "Lost" && (!currentUserId || item.reporterId === currentUserId),
+      ),
+    [marketplaceItems, currentUserId],
+  );
 
   const selectedLostItem = useMemo(
     () => lostItems.find((item) => item.id === selectedLostItemId) || null,
@@ -127,10 +250,10 @@ const MatchResults = () => {
 
     return {
       itemName: aiDetection.detectedLabel,
-      category: aiDetection.category,
+      category: aiDetection.category || "",
       locationLost: "Unknown",
-      dateLost: new Date().toISOString().slice(0, 10),
-      description: `AI detected probable ${aiDetection.detectedLabel.toLowerCase()} from uploaded image.`,
+      dateLost: "",
+      description: `Image scan detected ${aiDetection.detectedLabel.toLowerCase()} with dominant ${aiDetection.color} color.`,
       identifiers: uploadedFile?.name || "",
       color: aiDetection.color,
       hasImage: true,
@@ -150,23 +273,25 @@ const MatchResults = () => {
     return allMatches.filter((item) => item.match.score >= HIGH_CONFIDENCE_THRESHOLD);
   }, [allMatches, matchMode]);
 
-  const handleFilePick = (file) => {
+  const handleFilePick = async (file) => {
     if (!file) {
       return;
     }
 
-    const category = detectLikelyCategory(file.name);
-    const color = detectLikelyColor(file.name);
-    const detectedLabel = detectedLabelByCategory[category] || "Item";
-    const confidence = Math.min(97, 82 + Math.floor(Math.random() * 14));
-
     setUploadedFile(file);
     setControlTab("upload");
+    setAiDetection(null);
+
+    const category = detectCategoryFromDatabase(file.name, marketplaceItems);
+    const color = await analyzeImageColor(file);
+    const detectedLabel = getFileLabel(file.name);
+    const matchingSignals = [category, color !== "unknown", detectedLabel !== "Uploaded item"].filter(Boolean).length;
+
     setAiDetection({
       category,
       color,
       detectedLabel,
-      confidence,
+      confidence: Math.round((matchingSignals / 3) * 100),
     });
   };
 
@@ -186,6 +311,7 @@ const MatchResults = () => {
   };
 
   const highCount = allMatches.filter((item) => item.match.score >= HIGH_CONFIDENCE_THRESHOLD).length;
+  const relevantCount = allMatches.length;
 
   const lostItemOptions = useMemo(
     () => [
@@ -198,7 +324,7 @@ const MatchResults = () => {
     [lostItems],
   );
 
-  const sectionTitle = matchMode === "high" ? "High-confidence matches (80%+)" : "All ranked matches";
+  const sectionTitle = matchMode === "high" ? "High-confidence matches (80%+)" : "Relevant database matches";
   const shortUploadedName = truncateFileName(uploadedFile?.name || "", 32);
 
   return (
@@ -232,11 +358,11 @@ const MatchResults = () => {
             </button>
           </div>
 
-          <p className="match-high-note">Showing high-confidence matches (80%+) by default</p>
+          <p className="match-high-note">Showing database posts with real similarity signals</p>
 
           <div className="match-result-meta">
-            <strong>{highCount}</strong>
-            <span>high-confidence candidates found</span>
+            <strong>{matchMode === "high" ? highCount : relevantCount}</strong>
+            <span>{matchMode === "high" ? "high-confidence candidates" : "relevant candidates"} found</span>
           </div>
         </div>
 
@@ -326,13 +452,13 @@ const MatchResults = () => {
                 {aiDetection ? (
                   <div className="match-ai-detection">
                     <p>
-                      <FontAwesomeIcon icon={faWandMagicSparkles} /> Detected: <strong>{aiDetection.detectedLabel}</strong>
+                      <FontAwesomeIcon icon={faWandMagicSparkles} /> Image scan: <strong>{aiDetection.detectedLabel}</strong>
                     </p>
                     <p>
-                      <FontAwesomeIcon icon={faFilter} /> Features: <strong>{aiDetection.category}</strong> | <strong>{aiDetection.color}</strong>
+                      <FontAwesomeIcon icon={faFilter} /> Signals: <strong>{aiDetection.category || "Database category not detected"}</strong> | <strong>{aiDetection.color}</strong>
                     </p>
                     <p>
-                      <FontAwesomeIcon icon={faRobot} /> AI confidence: <strong>{aiDetection.confidence}%</strong>
+                      <FontAwesomeIcon icon={faRobot} /> Match signal coverage: <strong>{aiDetection.confidence}%</strong>
                     </p>
                   </div>
                 ) : null}
@@ -343,14 +469,36 @@ const MatchResults = () => {
           <section className="match-results-board">
             <div className="match-section-head">
               <h3>{sectionTitle}</h3>
-              <p>{activeSource === "image" ? "Powered by quick image analysis" : "Based on selected lost report"}</p>
+              <p>{activeSource === "image" ? "Based on image color and database item details" : "Based on selected lost report details"}</p>
             </div>
 
-            {visibleMatches.length ? (
+            {isLoadingItems ? (
+              <div className="match-empty-state" role="status">
+                <h4>Loading database items...</h4>
+                <p>Fetching lost and found reports before running the matcher.</p>
+              </div>
+            ) : loadError ? (
+              <div className="match-empty-state" role="status">
+                <h4>
+                  <FontAwesomeIcon icon={faTriangleExclamation} /> Unable to load matches
+                </h4>
+                <p>{loadError}</p>
+              </div>
+            ) : visibleMatches.length ? (
               <div className="match-card-list" role="list">
                 {visibleMatches.map((item) => (
-                  <MatchCard key={item.id} item={item} />
+                  <MatchCard key={item.id} item={item} matchMode={matchMode} />
                 ))}
+              </div>
+            ) : matchMode === "high" && allMatches.length ? (
+              <div className="match-empty-state match-empty-state-action" role="status">
+                <h4>
+                  <FontAwesomeIcon icon={faTriangleExclamation} /> No matches above 80%
+                </h4>
+                <p>There's no match more than 80%. Wanna check All Items?</p>
+                <button type="button" className="match-inline-button" onClick={() => setMatchMode("all")}>
+                  All Items
+                </button>
               </div>
             ) : (
               <div className="match-empty-state" role="status">
@@ -365,14 +513,20 @@ const MatchResults = () => {
       </section>
 
       <section className="page-card match-safety-reminder">
-        <p>
-          <FontAwesomeIcon icon={faShieldHalved} /> Safety reminder: High match scores still require claimant verification and admin approval.
-        </p>
-        <ul>
-          <li>Verify unique marks or serial details before release.</li>
-          <li>Keep communication in-app until ownership is confirmed.</li>
-          <li>Escalate suspicious claims for admin review.</li>
-        </ul>
+        <div className="match-safety-icon">
+          <FontAwesomeIcon icon={faShieldHalved} />
+        </div>
+        <div className="match-safety-content">
+          <p>
+            <span>Safety reminder</span>
+            <strong>High match scores still require claimant verification and admin approval.</strong>
+          </p>
+          <ul>
+            <li>Verify unique marks or serial details before release.</li>
+            <li>Keep communication in-app until ownership is confirmed.</li>
+            <li>Escalate suspicious claims for admin review.</li>
+          </ul>
+        </div>
       </section>
     </section>
   );

@@ -289,6 +289,7 @@ const listAdminUsers = async () => {
       coalesce(nullif(p.college_dept, ''), 'N/A') as college_dept,
       coalesce(nullif(p.year_section, ''), 'N/A') as year_section,
       coalesce(nullif(p.status, ''), 'active') as status,
+      p.suspended_until,
       coalesce(i.items_count, 0) as reports_count
     from auth.users u
     left join public.profiles p on p.id = u.id

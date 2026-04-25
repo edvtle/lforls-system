@@ -32,6 +32,11 @@ const PublicAuthRoute = ({ children }) => {
     return children;
   }
 
+  const status = String(profile?.status || "active").toLowerCase();
+  if (status === "suspended" || status === "banned") {
+    return children;
+  }
+
   return <Navigate to={resolveHomePath(profile?.role || "user")} replace />;
 };
 

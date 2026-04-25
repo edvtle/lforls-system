@@ -15,6 +15,7 @@ const normalizeProfile = (profile, fallbackEmail = "") => ({
   program: profile?.program || "",
   role: profile?.role || "user",
   status: profile?.status || "active",
+  suspendedUntil: profile?.suspended_until || "",
   avatarUrl: profile?.avatar_url || "",
 });
 
@@ -206,7 +207,7 @@ export const fetchProfileById = async (userId, fallbackEmail = "") => {
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, full_name, email, college_dept, year_section, program, role, status, avatar_url",
+      "id, full_name, email, college_dept, year_section, program, role, status, suspended_until, avatar_url",
     )
     .eq("id", userId)
     .single();
@@ -241,13 +242,36 @@ export const updateProfileById = async (userId, updates) => {
     .from("profiles")
     .upsert(payload, { onConflict: "id" })
     .select(
-      "id, full_name, email, college_dept, year_section, program, role, status, avatar_url",
+      "id, full_name, email, college_dept, year_section, program, role, status, suspended_until, avatar_url",
     )
     .single();
 
   if (error) throw error;
 
   return normalizeProfile(data, payload.email);
+};
+
+export const clearExpiredSuspension = async (userId) => {
+  assertSupabase();
+
+  if (!userId) {
+    return false;
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({ status: "active", suspended_until: null })
+    .eq("id", userId)
+    .eq("status", "suspended")
+    .lte("suspended_until", nowIso)
+    .select("id");
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) && data.length > 0;
 };
 
 export const onAuthStateChange = (callback) => {

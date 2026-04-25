@@ -29,6 +29,12 @@ const formatLabel = (value = "") =>
     .replace(/_/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
+const parseTimestamp = (value) => {
+  if (!value) return Number.NaN;
+  const milliseconds = Date.parse(String(value));
+  return Number.isFinite(milliseconds) ? milliseconds : Number.NaN;
+};
+
 const formatDate = (value) => {
   if (!value) return "N/A";
   const date = new Date(value);
@@ -90,7 +96,47 @@ const mapUser = (profile) => ({
   reportsCount: Number(profile.reports_count ?? profile.items?.[0]?.count ?? 0),
   status: formatLabel(profile.status || "active"),
   rawStatus: profile.status || "active",
+  suspendedUntil: profile.suspended_until || "",
 });
+
+const reconcileExpiredSuspensions = async (users = []) => {
+  const now = Date.now();
+  const expiredIds = users
+    .filter((user) => {
+      const isSuspended =
+        String(user.rawStatus || "").toLowerCase() === "suspended";
+      if (!isSuspended) return false;
+      const suspendedUntilMs = parseTimestamp(user.suspendedUntil);
+      return Number.isFinite(suspendedUntilMs) && suspendedUntilMs <= now;
+    })
+    .map((user) => user.id);
+
+  if (!expiredIds.length) {
+    return users;
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ status: "active", suspended_until: null })
+    .in("id", expiredIds)
+    .eq("status", "suspended")
+    .lte("suspended_until", new Date().toISOString());
+
+  if (error) {
+    return users;
+  }
+
+  return users.map((user) =>
+    expiredIds.includes(user.id)
+      ? {
+          ...user,
+          rawStatus: "active",
+          status: "Active",
+          suspendedUntil: "",
+        }
+      : user,
+  );
+};
 
 const mapClaim = (claim) => ({
   id: claim.id,
@@ -270,7 +316,8 @@ export const listAdminUsers = async () => {
   const { data: rpcUsers, error: rpcError } =
     await supabase.rpc("admin_list_users");
   if (!rpcError && Array.isArray(rpcUsers)) {
-    return rpcUsers.map(mapUser);
+    const mapped = rpcUsers.map(mapUser);
+    return reconcileExpiredSuspensions(mapped);
   }
 
   if (resetApiBaseUrl) {
@@ -289,7 +336,8 @@ export const listAdminUsers = async () => {
 
     if (response?.ok) {
       const body = await response.json().catch(() => ({}));
-      return (body?.users || []).map(mapUser);
+      const mapped = (body?.users || []).map(mapUser);
+      return reconcileExpiredSuspensions(mapped);
     }
   }
 
@@ -297,14 +345,15 @@ export const listAdminUsers = async () => {
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, full_name, email, college_dept, year_section, status, items(count)",
+      "id, full_name, email, college_dept, year_section, status, suspended_until, items(count)",
     )
     .order("full_name", { ascending: true })
     .limit(200);
 
   if (error) throw error;
 
-  return (data || []).map(mapUser);
+  const mapped = (data || []).map(mapUser);
+  return reconcileExpiredSuspensions(mapped);
 };
 
 export const listAdminClaims = async () => {
@@ -553,14 +602,34 @@ export const deleteAdminItem = async (itemId) => {
   notifyItemsUpdated();
 };
 
-export const updateAdminUserStatus = async (userId, status) => {
+export const updateAdminUserStatus = async (userId, status, options = {}) => {
   assertSupabase();
+
+  const normalizedStatus = String(status || "active").toLowerCase();
+  const payload = { status: normalizedStatus, suspended_until: null };
+
+  if (normalizedStatus === "suspended") {
+    const durationValue = Number(options.durationValue);
+    const durationUnit = String(options.durationUnit || "hours").toLowerCase();
+
+    if (!Number.isFinite(durationValue) || durationValue <= 0) {
+      throw new Error("Suspension duration must be greater than 0.");
+    }
+
+    const normalizedUnit = durationUnit === "days" ? "days" : "hours";
+    const milliseconds =
+      durationValue *
+      (normalizedUnit === "days" ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000);
+    payload.suspended_until = new Date(Date.now() + milliseconds).toISOString();
+  }
 
   const { error } = await supabase
     .from("profiles")
-    .update({ status })
+    .update(payload)
     .eq("id", userId);
   if (error) throw error;
+
+  return payload;
 };
 
 export const updateAdminUserProfile = async ({

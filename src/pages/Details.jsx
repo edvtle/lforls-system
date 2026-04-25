@@ -520,6 +520,10 @@ const Details = () => {
   }
 
   const statusTone = getStatusTone(item.status);
+  const source = searchParams.get("from");
+  const sourceMode = searchParams.get("mode") === "high" ? "high" : "all";
+  const backTarget = source === "matches" ? `/matches?mode=${sourceMode}` : "/browse";
+  const backLabel = source === "matches" ? "Back to Matches" : "Back to Browse";
   const currentUserId = session?.user?.id || null;
   const isReportedByCurrentUser = Boolean(currentUserId && item.reporterId && currentUserId === item.reporterId);
   const hasClaimRequest = item.status === "Found" && itemClaims.length > 0;
@@ -543,9 +547,9 @@ const Details = () => {
           </p>
         </div>
 
-        <Link to="/browse" className="details-back-link">
+        <Link to={backTarget} className="details-back-link">
           <Icon type="back" />
-          Back to Browse
+          {backLabel}
         </Link>
       </div>
 

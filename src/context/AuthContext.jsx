@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import {
   checkPasswordResetEmailExists as authCheckPasswordResetEmailExists,
+  clearExpiredSuspension,
   fetchProfileById,
   getSession,
   onAuthStateChange,
@@ -21,6 +22,27 @@ const normalizeAuth = async (session) => {
   }
 
   const profile = await fetchProfileById(session.user.id, session.user.email || "");
+
+  const status = String(profile?.status || "active").toLowerCase();
+  const suspendedUntil = String(profile?.suspendedUntil || "");
+  const suspendedUntilMs = suspendedUntil ? Date.parse(suspendedUntil) : Number.NaN;
+
+  if (status === "suspended" && Number.isFinite(suspendedUntilMs) && suspendedUntilMs <= Date.now()) {
+    try {
+      await clearExpiredSuspension(session.user.id);
+      return {
+        session,
+        profile: {
+          ...profile,
+          status: "active",
+          suspendedUntil: "",
+        },
+      };
+    } catch {
+      // Keep current profile when automatic status reconciliation fails.
+    }
+  }
+
   return { session, profile };
 };
 
@@ -87,18 +109,46 @@ export const AuthProvider = ({ children }) => {
 
   const signIn = async ({ email, password }) => {
     const { session: nextSession } = await authSignIn({ email, password });
-    const normalized = await normalizeAuth(nextSession);
+    let normalized = await normalizeAuth(nextSession);
 
-    const status = String(normalized.profile?.status || "active").toLowerCase();
+    let status = String(normalized.profile?.status || "active").toLowerCase();
+    const suspendedUntil = String(normalized.profile?.suspendedUntil || "");
+    const suspendedUntilMs = suspendedUntil ? Date.parse(suspendedUntil) : Number.NaN;
+
+    if (status === "suspended" && Number.isFinite(suspendedUntilMs) && suspendedUntilMs <= Date.now()) {
+      try {
+        await clearExpiredSuspension(normalized.profile?.id || nextSession?.user?.id);
+      } catch {
+        // Continue with local active status so the user can proceed when the suspension already expired.
+      }
+
+      normalized = {
+        ...normalized,
+        profile: {
+          ...normalized.profile,
+          status: "active",
+          suspendedUntil: "",
+        },
+      };
+      status = "active";
+    }
+
     if (status === "suspended" || status === "banned") {
       await authSignOut();
       setSession(null);
       setProfile(null);
-      throw new Error(
+      const error = new Error(
         status === "banned"
           ? "Your account has been banned. Please contact an administrator."
-          : "Your account is suspended. Please contact an administrator.",
+          : "Your account is suspended.",
       );
+      error.code = "ACCOUNT_BLOCKED";
+      error.accountStatus = status;
+      error.suspensionEndsAt =
+        status === "suspended" && Number.isFinite(suspendedUntilMs) && suspendedUntilMs > Date.now()
+          ? suspendedUntil
+          : "";
+      throw error;
     }
 
     setSession(normalized.session);

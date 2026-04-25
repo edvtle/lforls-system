@@ -39,7 +39,7 @@ const locationSimilarity = (left = "", right = "") => {
   const a = normalize(left);
   const b = normalize(right);
 
-  if (!a || !b) {
+  if (!a || !b || a === "unknown" || b === "unknown" || a === "n a" || b === "n a") {
     return 0;
   }
 
@@ -79,9 +79,12 @@ const imageSimilarity = (lostReport, foundItem) => {
     return 0;
   }
 
-  const categoryScore = lostReport.category && lostReport.category === foundItem.category ? 0.7 : 0.3;
+  const categoryScore =
+    lostReport.category && foundItem.category && normalize(lostReport.category) === normalize(foundItem.category)
+      ? 0.4
+      : 0;
   const colorScore =
-    lostReport.color && foundItem.color && normalize(lostReport.color) === normalize(foundItem.color) ? 0.3 : 0;
+    lostReport.color && foundItem.color && normalize(lostReport.color) === normalize(foundItem.color) ? 0.6 : 0;
 
   return Math.min(1, categoryScore + colorScore);
 };
@@ -93,7 +96,10 @@ export const getConfidenceLabel = (score) => {
 };
 
 export const computeMatch = (lostReport, foundItem) => {
-  const categoryScore = lostReport.category === foundItem.category ? 1 : 0;
+  const categoryScore =
+    lostReport.category && foundItem.category && normalize(lostReport.category) === normalize(foundItem.category)
+      ? 1
+      : 0;
   const nameScore = jaccardSimilarity(lostReport.itemName, foundItem.name);
   const locationScore = locationSimilarity(lostReport.locationLost, foundItem.location);
   const dateScore = dateSimilarity(lostReport.dateLost, foundItem.date);
@@ -120,7 +126,7 @@ export const computeMatch = (lostReport, foundItem) => {
   if (breakdown.location >= 10) reasons.push("Nearby location");
   if (breakdown.date >= 5) reasons.push("Close report date");
   if (breakdown.description >= 5) reasons.push("Similar description");
-  if (breakdown.image >= 5) reasons.push("Image-level similarity");
+  if (breakdown.image >= 5) reasons.push("Image/color similarity");
 
   return {
     score,
@@ -144,6 +150,7 @@ export const rankFoundMatches = (lostReport, items, limit = 8) => {
         match,
       };
     })
+    .filter((item) => item.match.score > 0)
     .sort((a, b) => b.match.score - a.match.score)
     .slice(0, limit);
 };

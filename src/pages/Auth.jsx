@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEye, faEyeSlash } from "@fortawesome/free-solid-svg-icons";
 import AnimatedContent from "../components/AnimatedContent";
+import Modal from "../components/Modal";
 import Button from "../components/ui/Button";
 import InputText from "../components/ui/InputText";
 import Radar from "../components/Radar";
@@ -12,6 +13,36 @@ import "../styles/Auth.css";
 const RESET_CODE_LENGTH = 6;
 const RESET_CODE_EXPIRY_SECONDS = 180;
 const RESET_CODE_RESEND_SECONDS = 60;
+
+const formatRemainingSuspension = (endsAtIso) => {
+  const endsAtMs = Date.parse(String(endsAtIso || ""));
+  if (!Number.isFinite(endsAtMs)) {
+    return "";
+  }
+
+  const remainingMs = Math.max(0, endsAtMs - Date.now());
+  if (remainingMs <= 0) {
+    return "0 minutes";
+  }
+
+  const totalMinutes = Math.ceil(remainingMs / (60 * 1000));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+
+  if (days > 0) {
+    parts.push(`${days} day${days === 1 ? "" : "s"}`);
+  }
+  if (hours > 0) {
+    parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+  }
+  if (minutes > 0 || !parts.length) {
+    parts.push(`${minutes} minute${minutes === 1 ? "" : "s"}`);
+  }
+
+  return parts.join(", ");
+};
 
 const Auth = () => {
   const magnifierSrc = "/logo.png";
@@ -38,9 +69,16 @@ const Auth = () => {
     confirmPassword: "",
   });
   const [snackbar, setSnackbar] = useState({ open: false, message: "" });
+  const [blockedAccountModal, setBlockedAccountModal] = useState({
+    isOpen: false,
+    status: "",
+    message: "",
+    suspensionEndsAt: "",
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resetResendSeconds, setResetResendSeconds] = useState(0);
   const [resetReturnSeconds, setResetReturnSeconds] = useState(0);
+  const [suspensionRemainingLabel, setSuspensionRemainingLabel] = useState("");
 
   const isSignup = mode === "signup";
   const isLogin = mode === "login";
@@ -99,8 +137,36 @@ const Auth = () => {
     return () => window.clearInterval(intervalId);
   }, [isResetSuccess, resetReturnSeconds]);
 
+  useEffect(() => {
+    if (!blockedAccountModal.isOpen || blockedAccountModal.status !== "suspended") {
+      setSuspensionRemainingLabel("");
+      return undefined;
+    }
+
+    const updateRemaining = () => {
+      setSuspensionRemainingLabel(formatRemainingSuspension(blockedAccountModal.suspensionEndsAt));
+    };
+
+    updateRemaining();
+    const intervalId = window.setInterval(updateRemaining, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [
+    blockedAccountModal.isOpen,
+    blockedAccountModal.status,
+    blockedAccountModal.suspensionEndsAt,
+  ]);
+
   const showSnackbar = (message) => {
     setSnackbar({ open: true, message });
+  };
+
+  const showBlockedAccountModal = ({ status, message, suspensionEndsAt = "" }) => {
+    setBlockedAccountModal({
+      isOpen: true,
+      status,
+      message,
+      suspensionEndsAt,
+    });
   };
 
   const normalizeEmail = (value = "") => value.trim().toLowerCase();
@@ -110,6 +176,7 @@ const Auth = () => {
     setShowPassword(false);
     setResetResendSeconds(0);
     setResetReturnSeconds(0);
+    setBlockedAccountModal({ isOpen: false, status: "", message: "", suspensionEndsAt: "" });
     setResetData({ email: "", code: "", resetToken: "", newPassword: "", confirmPassword: "" });
   };
 
@@ -259,6 +326,15 @@ const Auth = () => {
 
       navigate(loginResult.profile?.role === "admin" ? "/admin" : "/home", { replace: true });
     } catch (error) {
+      if (error?.code === "ACCOUNT_BLOCKED") {
+        showBlockedAccountModal({
+          status: String(error?.accountStatus || "").toLowerCase(),
+          message: error?.message || "This account is currently restricted. Please contact an administrator.",
+          suspensionEndsAt: error?.suspensionEndsAt || "",
+        });
+        return;
+      }
+
       showSnackbar(error?.message || "Authentication failed.");
     } finally {
       setIsSubmitting(false);
@@ -578,6 +654,49 @@ const Auth = () => {
                   {snackbar.message}
                 </div>
               )}
+
+              <Modal
+                isOpen={blockedAccountModal.isOpen}
+                onClose={() =>
+                  setBlockedAccountModal({
+                    isOpen: false,
+                    status: "",
+                    message: "",
+                    suspensionEndsAt: "",
+                  })
+                }
+                ariaLabel="Account status notice"
+                overlayClassName="auth-blocked-modal-backdrop"
+                panelClassName={`auth-blocked-modal-panel auth-blocked-modal-panel-${blockedAccountModal.status}`}
+              >
+                <h3 className="auth-blocked-modal-title">
+                  Account {blockedAccountModal.status === "banned" ? "Banned" : "Suspended"}
+                </h3>
+                <p className="auth-blocked-modal-message">{blockedAccountModal.message}</p>
+                {blockedAccountModal.status === "suspended" && suspensionRemainingLabel ? (
+                  <div className="auth-blocked-modal-remaining" role="status">
+                    <span>Time remaining</span>
+                    <strong>{suspensionRemainingLabel}</strong>
+                    <small>Automatic unsuspension when the timer ends</small>
+                  </div>
+                ) : null}
+                <div className="auth-blocked-modal-actions">
+                  <button
+                    type="button"
+                    className="auth-blocked-modal-button"
+                    onClick={() =>
+                      setBlockedAccountModal({
+                        isOpen: false,
+                        status: "",
+                        message: "",
+                        suspensionEndsAt: "",
+                      })
+                    }
+                  >
+                    Close
+                  </button>
+                </div>
+              </Modal>
             </div>
           </div>
         </section>

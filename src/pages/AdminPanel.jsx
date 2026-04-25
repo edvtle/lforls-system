@@ -103,6 +103,21 @@ const renderEmptyRow = (message, colSpan) => (
   </tr>
 );
 
+const formatDurationLabel = ({ value, unit }) => {
+  const safeValue = Number(value);
+  const safeUnit = String(unit || "hours").toLowerCase() === "days" ? "days" : "hours";
+  if (!Number.isFinite(safeValue) || safeValue <= 0) {
+    return "0 hours";
+  }
+
+  const rounded = Math.round(safeValue);
+  if (safeUnit === "days") {
+    return `${rounded} day${rounded === 1 ? "" : "s"}`;
+  }
+
+  return `${rounded} hour${rounded === 1 ? "" : "s"}`;
+};
+
 const AdminPanel = () => {
   const navigate = useNavigate();
   const { signOut } = useAuth();
@@ -131,6 +146,14 @@ const AdminPanel = () => {
     templateType: "generic",
     customMessage: "",
   });
+  const [suspendUserModal, setSuspendUserModal] = useState(null);
+  const [suspendForm, setSuspendForm] = useState({
+    durationValue: "1",
+    durationUnit: "hours",
+  });
+  const [isSuspendSubmitting, setIsSuspendSubmitting] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [isConfirmSubmitting, setIsConfirmSubmitting] = useState(false);
   const [userStatusFilter, setUserStatusFilter] = useState("all");
   const [userDeptFilter, setUserDeptFilter] = useState("all");
 
@@ -286,6 +309,38 @@ const AdminPanel = () => {
     }
   };
 
+  const openConfirmAction = ({
+    title = "Are you sure?",
+    message,
+    confirmLabel = "Confirm",
+    tone = "warning",
+    onConfirm,
+  }) => {
+    setConfirmAction({ title, message, confirmLabel, tone, onConfirm });
+  };
+
+  const closeConfirmAction = () => {
+    if (isConfirmSubmitting) {
+      return;
+    }
+
+    setConfirmAction(null);
+  };
+
+  const submitConfirmAction = async () => {
+    if (!confirmAction?.onConfirm) {
+      return;
+    }
+
+    setIsConfirmSubmitting(true);
+    try {
+      await confirmAction.onConfirm();
+      setConfirmAction(null);
+    } finally {
+      setIsConfirmSubmitting(false);
+    }
+  };
+
   const changeItemStatus = (id, status) => {
     const message =
       status === "resolved"
@@ -300,17 +355,115 @@ const AdminPanel = () => {
   const removeItem = (id) =>
     withMutationFeedback(() => deleteAdminItem(id), `Item ${id} deleted.`);
 
-  const changeUserStatus = (id, status, label) =>
-    withMutationFeedback(
-      () => updateAdminUserStatus(id, status),
-      `User ${id} is now ${label}.`,
+  const confirmResolveItem = (item) =>
+    openConfirmAction({
+      message: `Are you sure you want to mark "${item.name}" as resolved? It will be hidden from Browse.`,
+      confirmLabel: "Resolve Item",
+      tone: "warning",
+      onConfirm: () => changeItemStatus(item.id, "resolved"),
+    });
+
+  const confirmDeleteItem = (item) =>
+    openConfirmAction({
+      message: `Are you sure you want to delete "${item.name}"? This action cannot be undone.`,
+      confirmLabel: "Delete Item",
+      tone: "danger",
+      onConfirm: () => removeItem(item.id),
+    });
+
+  const closeSuspendModal = () => {
+    setSuspendUserModal(null);
+    setSuspendForm({ durationValue: "1", durationUnit: "hours" });
+    setIsSuspendSubmitting(false);
+  };
+
+  const openSuspendModal = (user) => {
+    setSuspendUserModal(user);
+    setSuspendForm({ durationValue: "1", durationUnit: "hours" });
+  };
+
+  const submitSuspendUser = async () => {
+    if (!suspendUserModal) {
+      return;
+    }
+
+    const durationValue = Number(suspendForm.durationValue);
+    const durationUnit = suspendForm.durationUnit === "days" ? "days" : "hours";
+
+    if (!Number.isFinite(durationValue) || durationValue <= 0) {
+      showSnackbar("Suspension duration must be greater than 0.");
+      return;
+    }
+
+    setIsSuspendSubmitting(true);
+    try {
+      await updateAdminUserStatus(suspendUserModal.id, "suspended", {
+        durationValue,
+        durationUnit,
+      });
+      await refreshPanel({ silent: true });
+      showSnackbar(
+        `User ${suspendUserModal.id} suspended for ${formatDurationLabel({
+          value: durationValue,
+          unit: durationUnit,
+        })}.`,
+      );
+      closeSuspendModal();
+    } catch (error) {
+      showSnackbar(error?.message || "Database update failed.");
+      setIsSuspendSubmitting(false);
+    }
+  };
+
+  const toggleUserStatus = async (user, status) => {
+    const userId = user.id;
+    const normalizedStatus = String(status || "active").toLowerCase();
+
+    if (normalizedStatus === "suspended") {
+      openConfirmAction({
+        message: `Are you sure you want to suspend ${user.name}?`,
+        confirmLabel: "Continue",
+        tone: "warning",
+        onConfirm: () => openSuspendModal(user),
+      });
+      return;
+    }
+
+    if (normalizedStatus === "banned") {
+      openConfirmAction({
+        message: `Are you sure you want to ban ${user.name}? This account will be blocked from using the system.`,
+        confirmLabel: "Ban User",
+        tone: "danger",
+        onConfirm: () =>
+          withMutationFeedback(
+            () => updateAdminUserStatus(userId, normalizedStatus),
+            `User ${userId} is now Banned.`,
+          ),
+      });
+      return;
+    }
+
+    const statusLabel = normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1);
+
+    await withMutationFeedback(
+      () => updateAdminUserStatus(userId, normalizedStatus),
+      `User ${userId} is now ${statusLabel}.`,
     );
+  };
 
   const removeUser = (id) =>
     withMutationFeedback(
       () => deleteAdminUser(id),
       `User ${id} was deleted from the account database.`,
     );
+
+  const confirmDeleteUser = (user) =>
+    openConfirmAction({
+      message: `Are you sure you want to delete ${user.name}? This removes the account from the admin user list.`,
+      confirmLabel: "Delete User",
+      tone: "danger",
+      onConfirm: () => removeUser(user.id),
+    });
 
   const openEditUserModal = (user) => {
     setEditingUser(user);
@@ -430,6 +583,14 @@ const AdminPanel = () => {
       }
     })();
 
+  const confirmRemoveContentFromFlag = (flag) =>
+    openConfirmAction({
+      message: `Are you sure you want to remove the content for report ${flag.id}? The related item will be hidden from Browse.`,
+      confirmLabel: "Remove Content",
+      tone: "danger",
+      onConfirm: () => removeContentFromFlag(flag),
+    });
+
   const suspendChatFromFlag = (flag) =>
     (async () => {
       try {
@@ -477,6 +638,14 @@ const AdminPanel = () => {
         showSnackbar(error?.message || "Database update failed.");
       }
     })();
+
+  const confirmSuspendChatFromFlag = (flag) =>
+    openConfirmAction({
+      message: `Are you sure you want to suspend this chat conversation? Users will no longer be able to send messages in it.`,
+      confirmLabel: "Suspend Chat",
+      tone: "danger",
+      onConfirm: () => suspendChatFromFlag(flag),
+    });
 
   const enableChatFromFlag = (flag) =>
     (async () => {
@@ -536,6 +705,14 @@ const AdminPanel = () => {
         showSnackbar(error?.message || "Database update failed.");
       }
     })();
+
+  const confirmDeleteReportRow = (flag) =>
+    openConfirmAction({
+      message: `Are you sure you want to delete report ${flag.id}? This removes it from the admin reports table.`,
+      confirmLabel: "Delete Report",
+      tone: "danger",
+      onConfirm: () => deleteReportRow(flag),
+    });
 
   const openImagePreview = (src, alt) => {
     if (!src) {
@@ -748,7 +925,7 @@ const AdminPanel = () => {
                             <button
                               type="button"
                               className="admin-action admin-action-approve"
-                              onClick={() => changeItemStatus(item.id, "resolved")}
+                              onClick={() => confirmResolveItem(item)}
                             >
                               Resolve
                             </button>
@@ -763,7 +940,7 @@ const AdminPanel = () => {
                           <button
                             type="button"
                             className="admin-action admin-action-icon-delete"
-                            onClick={() => removeItem(item.id)}
+                            onClick={() => confirmDeleteItem(item)}
                             aria-label={`Delete item ${item.name}`}
                             title="Delete item"
                           >
@@ -870,10 +1047,9 @@ const AdminPanel = () => {
                             type="button"
                             className="admin-action admin-action-reject"
                             onClick={() =>
-                              changeUserStatus(
-                                user.id,
+                              toggleUserStatus(
+                                user,
                                 user.rawStatus === "suspended" ? "active" : "suspended",
-                                user.rawStatus === "suspended" ? "Active" : "Suspended",
                               )
                             }
                           >
@@ -883,10 +1059,9 @@ const AdminPanel = () => {
                             type="button"
                             className="admin-action admin-action-delete"
                             onClick={() =>
-                              changeUserStatus(
-                                user.id,
+                              toggleUserStatus(
+                                user,
                                 user.rawStatus === "banned" ? "active" : "banned",
-                                user.rawStatus === "banned" ? "Active" : "Banned",
                               )
                             }
                           >
@@ -895,7 +1070,7 @@ const AdminPanel = () => {
                           <button
                             type="button"
                             className="admin-action admin-action-icon-delete"
-                            onClick={() => removeUser(user.id)}
+                            onClick={() => confirmDeleteUser(user)}
                             aria-label={`Delete user ${user.name}`}
                             title="Delete user"
                           >
@@ -1045,7 +1220,7 @@ const AdminPanel = () => {
                               onClick={() =>
                                 flag.rawStatus === "chat_suspended"
                                   ? enableChatFromFlag(flag)
-                                  : suspendChatFromFlag(flag)
+                                  : confirmSuspendChatFromFlag(flag)
                               }
                             >
                               {flag.rawStatus === "chat_suspended" ? "Enable Chat" : "Suspend Chat"}
@@ -1054,7 +1229,7 @@ const AdminPanel = () => {
                             <button
                               type="button"
                               className="admin-action admin-action-delete admin-action-report-main"
-                              onClick={() => removeContentFromFlag(flag)}
+                              onClick={() => confirmRemoveContentFromFlag(flag)}
                             >
                               Remove Content
                             </button>
@@ -1072,7 +1247,7 @@ const AdminPanel = () => {
                           <button
                             type="button"
                             className="admin-action admin-action-icon-delete"
-                            onClick={() => deleteReportRow(flag)}
+                            onClick={() => confirmDeleteReportRow(flag)}
                             aria-label={`Delete report ${flag.id}`}
                             title="Delete row"
                           >
@@ -1547,7 +1722,7 @@ const AdminPanel = () => {
                   onClick={() =>
                     selectedFlag.rawStatus === "chat_suspended"
                       ? enableChatFromFlag(selectedFlag)
-                      : suspendChatFromFlag(selectedFlag)
+                      : confirmSuspendChatFromFlag(selectedFlag)
                   }
                 >
                   {selectedFlag.rawStatus === "chat_suspended" ? "Enable Chat" : "Suspend Chat"}
@@ -1685,6 +1860,125 @@ const AdminPanel = () => {
                 }}
               >
                 Send Warning
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmAction ? (
+        <div className="admin-modal-backdrop" role="presentation">
+          <div
+            className={`admin-modal admin-modal-confirm admin-modal-confirm-${confirmAction.tone}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={confirmAction.title}
+          >
+            <div className="admin-modal-header">
+              <div>
+                <p className="admin-modal-kicker">Confirm action</p>
+                <h3>{confirmAction.title}</h3>
+              </div>
+            </div>
+
+            <p className="admin-confirm-message">{confirmAction.message}</p>
+
+            <div className="admin-modal-actions">
+              <button
+                type="button"
+                className="admin-action"
+                onClick={closeConfirmAction}
+                disabled={isConfirmSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`admin-action ${
+                  confirmAction.tone === "danger" ? "admin-action-delete" : "admin-action-reject"
+                }`}
+                onClick={submitConfirmAction}
+                disabled={isConfirmSubmitting}
+              >
+                {isConfirmSubmitting ? "Working..." : confirmAction.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {suspendUserModal ? (
+        <div className="admin-modal-backdrop" role="presentation">
+          <div className="admin-modal admin-modal-suspend" role="dialog" aria-modal="true" aria-label="Suspend user">
+            <div className="admin-modal-header">
+              <div>
+                <p className="admin-modal-kicker">User moderation</p>
+                <h3>Suspend User</h3>
+              </div>
+              <span className="admin-warning-pill">User #{suspendUserModal.id}</span>
+            </div>
+
+            <p className="admin-suspend-copy">
+              Set how long this account should stay suspended. The account will be automatically unsuspended after this duration.
+            </p>
+
+            <div className="admin-suspend-grid">
+              <label className="admin-modal-field">
+                Duration
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  min="1"
+                  step="1"
+                  value={suspendForm.durationValue}
+                  onChange={(event) =>
+                    setSuspendForm((current) => ({
+                      ...current,
+                      durationValue: event.target.value.replace(/\D/g, ""),
+                    }))
+                  }
+                />
+              </label>
+
+              <label className="admin-modal-field">
+                Unit
+                <select
+                  value={suspendForm.durationUnit}
+                  onChange={(event) =>
+                    setSuspendForm((current) => ({
+                      ...current,
+                      durationUnit: event.target.value === "days" ? "days" : "hours",
+                    }))
+                  }
+                  className="admin-filter-select"
+                >
+                  <option value="hours">Hours</option>
+                  <option value="days">Days</option>
+                </select>
+              </label>
+            </div>
+
+            <p className="admin-suspend-preview">
+              Suspension length: {formatDurationLabel({ value: suspendForm.durationValue, unit: suspendForm.durationUnit })}
+            </p>
+
+            <div className="admin-modal-actions">
+              <button
+                type="button"
+                className="admin-action"
+                onClick={closeSuspendModal}
+                disabled={isSuspendSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="admin-action admin-action-reject"
+                onClick={submitSuspendUser}
+                disabled={isSuspendSubmitting}
+              >
+                {isSuspendSubmitting ? "Suspending..." : "Confirm Suspension"}
               </button>
             </div>
           </div>

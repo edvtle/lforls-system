@@ -1,15 +1,21 @@
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpRightFromSquare, faCircleCheck, faLocationDot, faTag } from "@fortawesome/free-solid-svg-icons";
-import { getClaims } from "../utils/claimStore";
+import { faArrowUpRightFromSquare, faLocationDot, faTag } from "@fortawesome/free-solid-svg-icons";
 
-const MatchCard = ({ item }) => {
+const getScoreTone = (score = 0) => {
+  if (score >= 80) return "strong";
+  if (score >= 50) return "possible";
+  return "weak";
+};
+
+const MatchCard = ({ item, matchMode = "all" }) => {
   if (!item) {
     return null;
   }
 
-  const itemClaims = getClaims().filter((claim) => claim.itemId === item.id);
-  const hasClaimRequest = item.status === "Found" && itemClaims.length > 0;
+  const score = Number(item.match?.score || 0);
+  const scoreTone = getScoreTone(score);
+  const detailsPath = `/details/${item.id}?from=matches&mode=${encodeURIComponent(matchMode)}`;
 
   return (
     <article className="match-card">
@@ -18,26 +24,33 @@ const MatchCard = ({ item }) => {
       <div className="match-card-body">
         <div className="match-card-head">
           <div>
-            <p className="page-kicker">{item.match.score}% match</p>
+            <p className="page-kicker">{item.match?.label || "Similarity match"}</p>
             <h3>{item.name}</h3>
           </div>
-          <span className="match-card-status">Found item</span>
+          <div className={`match-card-score-panel match-card-score-panel-${scoreTone}`}>
+            <strong>{score}%</strong>
+            <span>match</span>
+          </div>
         </div>
 
         <p className="match-card-meta">
-          <FontAwesomeIcon icon={faTag} /> {item.category} <span>•</span> <FontAwesomeIcon icon={faLocationDot} /> {item.location}
+          <FontAwesomeIcon icon={faTag} /> {item.category}
+          <span className="match-card-meta-dot">•</span>
+          <FontAwesomeIcon icon={faLocationDot} /> {item.location}
         </p>
 
         <div className="match-card-reasons">
-          {item.match.reasons.length ? item.match.reasons.map((reason) => <span key={reason}>{reason}</span>) : <span>Limited similarity signals</span>}
+          <span className="match-card-status">Found item</span>
+          {item.match?.reasons?.length ? (
+            item.match.reasons.map((reason) => <span key={reason}>{reason}</span>)
+          ) : (
+            <span>Limited similarity signals</span>
+          )}
         </div>
 
         <div className="match-card-actions">
-          <Link className="match-card-action" to={`/details/${item.id}`}>
+          <Link className="match-card-action" to={detailsPath}>
             View details <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
-          </Link>
-          <Link className="match-card-action match-card-action-claim" to={`/details/${item.id}?claim=1`}>
-            {hasClaimRequest ? "Claimed" : "Claim Item"} <FontAwesomeIcon icon={faCircleCheck} />
           </Link>
         </div>
       </div>
