@@ -150,6 +150,15 @@ html[data-theme="light"] .app-nav-group,
   transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
 }
 
+.app-mobile-menu-icon {
+  font-size: 1.05rem;
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+
+.app-mobile-menu-toggle-open .app-mobile-menu-icon {
+  transform: rotate(-90deg) scale(0.95);
+}
+
 .app-mobile-menu-toggle:hover {
   border-color: rgba(143, 231, 97, 0.7);
   background: rgba(12, 20, 13, 0.95);
@@ -168,6 +177,30 @@ html[data-theme="light"] .app-nav-group,
 
 .app-mobile-menu-panel {
   display: none;
+}
+
+@keyframes appMobilePanelIn {
+  from {
+    opacity: 0;
+    transform: translateX(10px) translateY(-4px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) translateY(0) scale(1);
+  }
+}
+
+@keyframes appMobileOptionSlideLeft {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .app-link {
@@ -4095,6 +4128,11 @@ html[data-theme="light"] .report-crop-actions,
     border: 1px solid rgba(93, 214, 44, 0.26);
     background: rgba(7, 13, 8, 0.92);
     box-shadow: 0 14px 30px rgba(0, 0, 0, 0.3);
+    transform-origin: top right;
+  }
+
+  .app-mobile-menu-panel-enter {
+    animation: appMobilePanelIn 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .app-mobile-menu-panel .app-link {
@@ -4103,6 +4141,21 @@ html[data-theme="light"] .report-crop-actions,
     padding-block: 0.52rem;
     border: 1px solid rgba(93, 214, 44, 0.25);
     background: rgba(93, 214, 44, 0.1);
+    opacity: 0;
+    transform: translateX(22px);
+    animation: appMobileOptionSlideLeft 280ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .app-mobile-menu-panel .app-link:nth-child(1) {
+    animation-delay: 50ms;
+  }
+
+  .app-mobile-menu-panel .app-link:nth-child(2) {
+    animation-delay: 100ms;
+  }
+
+  .app-mobile-menu-panel .app-link:nth-child(3) {
+    animation-delay: 150ms;
   }
 
   .app-nav-group {
@@ -4287,5 +4340,170 @@ html[data-theme="light"] .report-crop-actions,
 
   .app-notification-dropdown {
     right: -0.3rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-main,
+  .app-main-home {
+    width: min(1380px, 100vw);
+    padding: 1rem 0.75rem 1.35rem;
+  }
+
+  .page-card {
+    border-radius: 0.95rem;
+    padding: 0.85rem;
+  }
+
+  .app-mobile-menu-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .app-link {
+    padding: 0.58rem 0.62rem;
+    font-size: 0.79rem;
+  }
+
+  .notification-tabs {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .notification-tab,
+  .notification-mark-all {
+    justify-content: center;
+    text-align: center;
+    min-height: 2.45rem;
+  }
+
+  .notification-item {
+    gap: 0.72rem;
+    padding: 0.85rem;
+  }
+
+  .notification-open-action {
+    width: 100%;
+    min-height: 2.65rem;
+  }
+
+  .messages-sidebar,
+  .messages-chat-panel,
+  .match-main-list,
+  .match-side-panel,
+  .report-step-card,
+  .details-panel,
+  .profile-panel,
+  .profile-glance-card,
+  .profile-nav-card,
+  .profile-settings-card {
+    padding: 0.78rem;
+  }
+
+  .messages-bubble {
+    max-width: 100%;
+  }
+
+  .messages-head-actions,
+  .report-actions-right,
+  .profile-card-actions,
+  .profile-settings-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .messages-head-actions > *,
+  .report-actions-right > *,
+  .profile-card-actions > *,
+  .profile-settings-actions > * {
+    flex: 1 1 100%;
+  }
+
+  .messages-ghost-button,
+  .messages-claim-button,
+  .messages-input-row .hero-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .report-similar li {
+    align-items: flex-start;
+  }
+
+  .report-similar img {
+    width: 2.85rem;
+    height: 2.85rem;
+  }
+
+  .report-review-grid > div,
+  .match-query-grid > div,
+  .profile-stat,
+  .profile-timeline-item {
+    padding: 0.68rem 0.72rem;
+  }
+
+  .match-card {
+    min-width: min(90vw, 20rem);
+  }
+
+  .profile-report-grid > .profile-report-card {
+    width: 100%;
+  }
+}
+
+@media (max-width: 460px) {
+  .app-header {
+    padding-inline: 0.72rem;
+  }
+
+  .app-brand-small {
+    font-size: 0.58rem;
+    letter-spacing: 0.12em;
+  }
+
+  .app-brand-title {
+    font-size: 1.04rem;
+  }
+
+  .app-main,
+  .app-main-home {
+    padding-inline: 0.6rem;
+  }
+
+  .page-kicker {
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+  }
+
+  .page-title {
+    font-size: 1.1rem;
+  }
+
+  .notification-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .report-step-card h3,
+  .messages-chat-head h3,
+  .messages-sidebar h3,
+  .match-card-head h3 {
+    font-size: 1rem;
+  }
+
+  .report-draft-actions .report-secondary-button,
+  .report-draft-actions .report-primary-button {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-mobile-menu-icon,
+  .app-mobile-menu-panel-enter,
+  .app-mobile-menu-panel .app-link {
+    animation: none;
+    transition: none;
+    transform: none;
+    opacity: 1;
   }
 }
