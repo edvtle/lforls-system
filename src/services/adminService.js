@@ -46,10 +46,24 @@ const parseConversationId = (target = "") => {
 const mapItem = (item) => {
   const images = Array.isArray(item.item_images) ? item.item_images : [];
   const primary = images.find((entry) => entry.is_primary) || images[0];
+  const gallery = images
+    .slice()
+    .sort((left, right) => {
+      if (left?.is_primary && !right?.is_primary) return -1;
+      if (!left?.is_primary && right?.is_primary) return 1;
+      return 0;
+    })
+    .map((entry) => String(entry?.public_url || "").trim())
+    .filter(Boolean);
+  const uniqueGallery = [...new Set(gallery)];
+  const resolvedGallery = uniqueGallery.length
+    ? uniqueGallery
+    : [primary?.public_url || ITEM_FALLBACK_IMAGE];
 
   return {
     id: item.id,
     image: primary?.public_url || ITEM_FALLBACK_IMAGE,
+    gallery: resolvedGallery,
     name: item.item_name || "Unnamed item",
     category: item.category || "Others",
     location: item.location_text || "Unknown",
@@ -95,6 +109,19 @@ const mapFlag = (flag, reporterMap = new Map()) => {
     ? flag.items.item_images
     : [];
   const primary = images.find((entry) => entry.is_primary) || images[0];
+  const gallery = images
+    .slice()
+    .sort((left, right) => {
+      if (left?.is_primary && !right?.is_primary) return -1;
+      if (!left?.is_primary && right?.is_primary) return 1;
+      return 0;
+    })
+    .map((entry) => String(entry?.public_url || "").trim())
+    .filter(Boolean);
+  const uniqueGallery = [...new Set(gallery)];
+  const resolvedGallery = uniqueGallery.length
+    ? uniqueGallery
+    : [primary?.public_url || ITEM_FALLBACK_IMAGE];
   const conversationId = parseConversationId(flag.target);
   const isChatReport = Boolean(conversationId);
   const reporter = reporterMap.get(flag.user_id) || null;
@@ -142,6 +169,7 @@ const mapFlag = (flag, reporterMap = new Map()) => {
       ? {
           id: flag.items.id,
           image: primary?.public_url || ITEM_FALLBACK_IMAGE,
+          gallery: resolvedGallery,
           name: flag.items.item_name || "Unnamed item",
           category: flag.items.category || "Others",
           location: flag.items.location_text || "Unknown",

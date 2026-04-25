@@ -176,6 +176,19 @@
 	transition: background-color 9999s ease-out, color 9999s ease-out;
 }
 
+/* Hide native Edge password reveal/clear controls to avoid duplicate eye icon. */
+.auth-input-field[type="password"]::-ms-reveal,
+.auth-input-field[type="password"]::-ms-clear {
+	display: none;
+}
+
+/* Chromium/Edge webkit reveal icon guard. */
+.auth-input-field[type="password"]::-webkit-credentials-auto-fill-button,
+.auth-input-field[type="password"]::-webkit-textfield-decoration-container {
+	visibility: hidden;
+	pointer-events: none;
+}
+
 .auth-input-trailing {
 	background: transparent;
 	border: 0;

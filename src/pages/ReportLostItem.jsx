@@ -2,17 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faCamera,
+  faCrop,
   faCheck,
   faChevronLeft,
   faChevronRight,
   faCircleInfo,
   faCloudArrowUp,
-  faCrop,
   faLocationDot,
   faPaperPlane,
-  faWandMagic,
   faTrash,
+  faWandMagic,
 } from "@fortawesome/free-solid-svg-icons";
 import Modal from "../components/Modal";
 import SelectDropdown from "../components/ui/SelectDropdown";
@@ -26,6 +25,7 @@ import {
 } from "../utils/reportDraftStore";
 
 const TOTAL_STEPS = 4;
+const MAX_UPLOAD_IMAGES = 3;
 
 const categoryOptions = [
   "Electronics",
@@ -120,36 +120,61 @@ const ReportLostItem = () => {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
-  const [uploadedFile, setUploadedFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState("");
-  const [draftImageDataUrl, setDraftImageDataUrl] = useState("");
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState([]);
+  const [draftImageDataUrls, setDraftImageDataUrls] = useState([]);
   const [dragActive, setDragActive] = useState(false);
   const [aiDetected, setAiDetected] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDraftDirty, setIsDraftDirty] = useState(false);
   const [saveDraftNotice, setSaveDraftNotice] = useState("");
+  const [snackbar, setSnackbar] = useState({ open: false, message: "" });
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropFileName, setCropFileName] = useState("upload.jpg");
+  const [cropTargetIndex, setCropTargetIndex] = useState(0);
   const [draftRestoreOpen, setDraftRestoreOpen] = useState(false);
   const [draftRestoreData, setDraftRestoreData] = useState(null);
   const [draftCheckedUserId, setDraftCheckedUserId] = useState("");
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    if (!uploadedFile) {
-      setImagePreview("");
+    if (!uploadedFiles.length) {
+      setImagePreviews([]);
       return undefined;
     }
 
-    const url = URL.createObjectURL(uploadedFile);
-    setImagePreview(url);
+    const nextPreviews = uploadedFiles.map((file) => URL.createObjectURL(file));
+    setImagePreviews(nextPreviews);
 
     return () => {
-      URL.revokeObjectURL(url);
+      nextPreviews.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [uploadedFile]);
+  }, [uploadedFiles]);
+
+  useEffect(() => {
+    if (!uploadedFiles.length) {
+      setDraftImageDataUrls([]);
+      return;
+    }
+
+    let canceled = false;
+
+    Promise.all(
+      uploadedFiles.map((file) =>
+        fileToDataUrl(file).catch(() => ""),
+      ),
+    ).then((dataUrls) => {
+      if (!canceled) {
+        setDraftImageDataUrls(dataUrls.filter(Boolean));
+      }
+    });
+
+    return () => {
+      canceled = true;
+    };
+  }, [uploadedFiles]);
 
   const accountEmail = profile?.email || session?.user?.email || "";
   const reportDraftUserId = profile?.id || session?.user?.id || "anonymous";
@@ -170,7 +195,7 @@ const ReportLostItem = () => {
 
     setDraftRestoreData(null);
     setDraftRestoreOpen(false);
-    setDraftImageDataUrl("");
+    setDraftImageDataUrls([]);
     setAiDetected("");
   }, [draftCheckedUserId, reportDraftUserId]);
 
@@ -213,8 +238,10 @@ const ReportLostItem = () => {
       draft: {
         step,
         form,
-        imageDataUrl: draftImageDataUrl,
-        imageName: cropFileName,
+        imageDataUrls: draftImageDataUrls,
+        imageNames: uploadedFiles.map((file) => file.name || "upload.jpg"),
+        imageDataUrl: draftImageDataUrls[0] || "",
+        imageName: uploadedFiles[0]?.name || cropFileName,
         aiDetected,
         savedAt: new Date().toISOString(),
       },
@@ -233,24 +260,36 @@ const ReportLostItem = () => {
       setCropFileName(draftRestoreData.imageName || "upload.jpg");
       setErrors({});
 
-      if (draftRestoreData.imageDataUrl) {
+      const imageDataUrls = Array.isArray(draftRestoreData.imageDataUrls)
+        ? draftRestoreData.imageDataUrls.filter(Boolean).slice(0, MAX_UPLOAD_IMAGES)
+        : draftRestoreData.imageDataUrl
+          ? [draftRestoreData.imageDataUrl]
+          : [];
+      const imageNames = Array.isArray(draftRestoreData.imageNames)
+        ? draftRestoreData.imageNames
+        : [draftRestoreData.imageName || "upload.jpg"];
+
+      if (imageDataUrls.length) {
         try {
-          const restoredFile = await dataUrlToFile(
-            draftRestoreData.imageDataUrl,
-            draftRestoreData.imageName || "upload.jpg",
+          const restoredFiles = await Promise.all(
+            imageDataUrls.map((dataUrl, index) =>
+              dataUrlToFile(dataUrl, imageNames[index] || `upload-${index + 1}.jpg`),
+            ),
           );
-          setUploadedFile(restoredFile);
-          setDraftImageDataUrl(draftRestoreData.imageDataUrl);
-          setImagePreview(draftRestoreData.imageDataUrl);
+
+          const validFiles = restoredFiles.filter(Boolean);
+          setUploadedFiles(validFiles);
+          setDraftImageDataUrls(imageDataUrls);
+          setCropTargetIndex(0);
         } catch {
-          setUploadedFile(null);
-          setDraftImageDataUrl(draftRestoreData.imageDataUrl);
-          setImagePreview(draftRestoreData.imageDataUrl);
+          setUploadedFiles([]);
+          setDraftImageDataUrls([]);
+          setCropTargetIndex(0);
         }
       } else {
-        setUploadedFile(null);
-        setDraftImageDataUrl("");
-        setImagePreview("");
+        setUploadedFiles([]);
+        setDraftImageDataUrls([]);
+        setCropTargetIndex(0);
       }
     };
 
@@ -268,7 +307,7 @@ const ReportLostItem = () => {
     if (draftCheckedUserId === reportDraftUserId) {
       persistDraft();
     }
-  }, [draftImageDataUrl, form, step, aiDetected, isDraftDirty, submitted, draftRestoreOpen, draftRestoreData, reportDraftUserId, draftCheckedUserId]);
+  }, [draftImageDataUrls, form, step, aiDetected, isDraftDirty, submitted, draftRestoreOpen, draftRestoreData, reportDraftUserId, draftCheckedUserId]);
 
   useEffect(() => {
     if (step !== 4 || !accountEmail || !isEmailContactMethod(form.contactMethod) || form.contactValue) {
@@ -287,6 +326,18 @@ const ReportLostItem = () => {
     return () => window.clearTimeout(timer);
   }, [saveDraftNotice]);
 
+  useEffect(() => {
+    if (!snackbar.open) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setSnackbar({ open: false, message: "" });
+    }, 2600);
+
+    return () => window.clearTimeout(timer);
+  }, [snackbar.open]);
+
   const progressPercent = Math.round((step / TOTAL_STEPS) * 100);
 
   const hasDraftableInput = useMemo(() => {
@@ -304,8 +355,8 @@ const ReportLostItem = () => {
       return value !== null && value !== undefined && value !== defaultValue;
     });
 
-    return hasTextInput || Boolean(uploadedFile) || Boolean(draftImageDataUrl);
-  }, [draftImageDataUrl, form, uploadedFile]);
+    return hasTextInput || uploadedFiles.length > 0 || draftImageDataUrls.length > 0;
+  }, [draftImageDataUrls, form, uploadedFiles.length]);
 
   const suggestedCategories = useMemo(() => {
     const source = `${form.itemName} ${form.description}`.toLowerCase();
@@ -341,6 +392,10 @@ const ReportLostItem = () => {
       delete next[field];
       return next;
     });
+  };
+
+  const showSnackbar = (message) => {
+    setSnackbar({ open: true, message });
   };
 
   const validateStep = (targetStep) => {
@@ -386,46 +441,76 @@ const ReportLostItem = () => {
     setStep((current) => Math.max(1, current - 1));
   };
 
-  const handleFilePick = (file) => {
-    if (!file) {
+  const handleFilePick = (files) => {
+    const selectedFiles = Array.from(files || []);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
+    const incomingFiles = selectedFiles.filter((file) => file instanceof File);
+    if (!incomingFiles.length) {
       return;
     }
 
-    setUploadedFile(file);
-    setCropFileName(file.name || "upload.jpg");
-    setAiDetected(detectLikelyCategory(file.name, form.itemName));
+    const remainingSlots = Math.max(0, MAX_UPLOAD_IMAGES - uploadedFiles.length);
+    if (!remainingSlots) {
+      showSnackbar(`Maximum ${MAX_UPLOAD_IMAGES} images allowed.`);
+      return;
+    }
+
+    if (incomingFiles.length > remainingSlots) {
+      showSnackbar(
+        `Maximum ${MAX_UPLOAD_IMAGES} images allowed. You can add ${remainingSlots} more image${remainingSlots > 1 ? "s" : ""}.`,
+      );
+    }
+
+    const acceptedFiles = incomingFiles.slice(0, remainingSlots);
+    const nextFiles = [...uploadedFiles, ...acceptedFiles];
+
+    setUploadedFiles(nextFiles);
+    const lastFile = acceptedFiles[acceptedFiles.length - 1];
+    setCropFileName(lastFile?.name || "upload.jpg");
+    setCropTargetIndex(Math.max(0, nextFiles.length - 1));
+    setAiDetected(detectLikelyCategory(lastFile?.name || "", form.itemName));
     setIsDraftDirty(true);
-    void fileToDataUrl(file)
-      .then((dataUrl) => setDraftImageDataUrl(dataUrl))
-      .catch(() => setDraftImageDataUrl(""));
   };
 
   const applyCroppedImage = (croppedFile) => {
-    setUploadedFile(croppedFile);
+    setUploadedFiles((current) =>
+      current.map((file, index) => (index === cropTargetIndex ? croppedFile : file)),
+    );
+    setCropFileName(croppedFile.name || "upload.jpg");
     setAiDetected(detectLikelyCategory(croppedFile.name, form.itemName));
     setCropModalOpen(false);
     setIsDraftDirty(true);
-    void fileToDataUrl(croppedFile)
-      .then((dataUrl) => setDraftImageDataUrl(dataUrl))
-      .catch(() => setDraftImageDataUrl(""));
   };
 
   const handleDrop = (event) => {
     event.preventDefault();
     setDragActive(false);
-    const file = event.dataTransfer.files?.[0];
-    handleFilePick(file);
+    handleFilePick(event.dataTransfer.files);
   };
 
-  const removeImage = () => {
-    setUploadedFile(null);
-    setAiDetected("");
-    setDraftImageDataUrl("");
-    setCropModalOpen(false);
-    setIsDraftDirty(true);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+  const removeImage = (indexToRemove) => {
+    const nextFiles = uploadedFiles.filter((_, index) => index !== indexToRemove);
+
+    setUploadedFiles(nextFiles);
+    if (!nextFiles.length) {
+      setAiDetected("");
+      setCropModalOpen(false);
+      setCropTargetIndex(0);
+    } else if (cropTargetIndex >= nextFiles.length) {
+      setCropTargetIndex(nextFiles.length - 1);
     }
+
+    setIsDraftDirty(true);
+  };
+
+  const openCropForImage = (index) => {
+    setCropTargetIndex(index);
+    setCropFileName(uploadedFiles[index]?.name || "upload.jpg");
+    setCropModalOpen(true);
   };
 
   const handleSubmit = (event) => {
@@ -473,7 +558,7 @@ const ReportLostItem = () => {
           contactValue: form.contactValue,
           notifyOnMatch: form.notifyOnMatch,
         },
-        file: uploadedFile,
+        files: uploadedFiles,
       });
 
       deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
@@ -519,9 +604,9 @@ const ReportLostItem = () => {
           onClick={() => {
             setForm(emptyForm);
             setErrors({});
-            setUploadedFile(null);
+            setUploadedFiles([]);
             setAiDetected("");
-            setDraftImageDataUrl("");
+            setDraftImageDataUrls([]);
             deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
             setStep(1);
             setSubmitted(false);
@@ -717,9 +802,10 @@ const ReportLostItem = () => {
               ref={fileInputRef}
               type="file"
               accept="image/*"
+              multiple
               capture="environment"
               className="report-hidden-input"
-              onChange={(event) => handleFilePick(event.target.files?.[0])}
+              onChange={(event) => handleFilePick(event.target.files)}
             />
 
             <button
@@ -734,27 +820,32 @@ const ReportLostItem = () => {
               onDrop={handleDrop}
             >
               <FontAwesomeIcon icon={faCloudArrowUp} />
-              <strong>Drag and drop an image here</strong>
-              <span>or click to browse files / open camera</span>
+              <strong>Drag and drop images here</strong>
+              <span>or click to browse files / open camera (max 3 images)</span>
             </button>
 
-            {imagePreview ? (
-              <div className="report-image-preview">
-                <img src={imagePreview} alt="Uploaded item preview" />
-                <div>
-                  <p>{uploadedFile?.name}</p>
-                  <div className="report-inline-actions">
-                    <button type="button" onClick={() => fileInputRef.current?.click()}>
-                      <FontAwesomeIcon icon={faCamera} /> Replace
-                    </button>
-                    <button type="button" onClick={() => setCropModalOpen(true)}>
-                      <FontAwesomeIcon icon={faCrop} /> Crop
-                    </button>
-                    <button type="button" onClick={removeImage}>
-                      <FontAwesomeIcon icon={faTrash} /> Remove
-                    </button>
+            <p className="report-draft-inline-note report-upload-count" aria-live="polite">
+              {uploadedFiles.length}/{MAX_UPLOAD_IMAGES} images selected
+            </p>
+
+            {imagePreviews.length ? (
+              <div className="report-image-gallery" role="list" aria-label="Uploaded images">
+                {imagePreviews.map((preview, index) => (
+                  <div key={`${uploadedFiles[index]?.name || "upload"}-${index}`} className="report-image-preview" role="listitem">
+                    <img src={preview} alt={`Uploaded item preview ${index + 1}`} />
+                    <div>
+                      <p>{uploadedFiles[index]?.name}</p>
+                      <div className="report-inline-actions">
+                        <button type="button" onClick={() => openCropForImage(index)}>
+                          <FontAwesomeIcon icon={faCrop} /> Crop
+                        </button>
+                        <button type="button" onClick={() => removeImage(index)}>
+                          <FontAwesomeIcon icon={faTrash} /> Remove
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             ) : null}
 
@@ -839,9 +930,13 @@ const ReportLostItem = () => {
               <span>Notify me automatically when a potential match is found</span>
             </label>
 
-            {imagePreview ? (
-              <div className="report-review-image">
-                <img src={imagePreview} alt="Report preview" />
+            {imagePreviews.length ? (
+              <div className="report-review-images" aria-label="Report preview images">
+                {imagePreviews.map((preview, index) => (
+                  <div key={`review-image-${index}`} className="report-review-image">
+                    <img src={preview} alt={`Report preview ${index + 1}`} />
+                  </div>
+                ))}
               </div>
             ) : null}
           </section>
@@ -885,8 +980,8 @@ const ReportLostItem = () => {
 
       <ImageCropModal
         isOpen={cropModalOpen}
-        imageSrc={imagePreview}
-        fileName={cropFileName}
+        imageSrc={imagePreviews[cropTargetIndex] || ""}
+        fileName={uploadedFiles[cropTargetIndex]?.name || cropFileName}
         onCancel={() => {
           setCropModalOpen(false);
         }}
@@ -919,8 +1014,8 @@ const ReportLostItem = () => {
               setDraftRestoreData(null);
               setForm(emptyForm);
               setErrors({});
-              setUploadedFile(null);
-              setDraftImageDataUrl("");
+              setUploadedFiles([]);
+              setDraftImageDataUrls([]);
               setAiDetected("");
               setStep(1);
               deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
@@ -971,6 +1066,12 @@ const ReportLostItem = () => {
           </button>
         </div>
       </Modal>
+
+      {snackbar.open ? (
+        <div className="report-snackbar" role="status" aria-live="polite">
+          {snackbar.message}
+        </div>
+      ) : null}
     </>
   );
 };

@@ -48,14 +48,15 @@ const Messages = () => {
   const [searchParams] = useSearchParams();
   const { profile } = useAuth();
   const currentUserId = profile?.id || null;
-  const [conversations, setConversations] = useState([]);
+  const [inboxConversations, setInboxConversations] = useState([]);
+  const [archivedConversations, setArchivedConversations] = useState([]);
   const [activeId, setActiveId] = useState("");
   const [conversationQuery, setConversationQuery] = useState("");
   const [messageText, setMessageText] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [threadLoading, setThreadLoading] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
+  const [viewMode, setViewMode] = useState("inbox");
   const [showVerification, setShowVerification] = useState(false);
   const [verification, setVerification] = useState({
     fullName: "",
@@ -73,42 +74,43 @@ const Messages = () => {
   const [menuConversationId, setMenuConversationId] = useState("");
   const menuWrapRef = useRef(null);
 
+  const isArchivedMode = viewMode === "archived";
+  const isBlockedMode = viewMode === "blocked";
+
   const showSnackbar = (message) => {
     setSnackbar({ visible: true, message });
   };
 
-  const refreshConversations = async (options = {}) => {
-    const includeArchived =
-      typeof options.includeArchived === "boolean"
-        ? options.includeArchived
-        : showArchived;
-
+  const refreshConversations = async () => {
     if (!currentUserId) {
-      setConversations([]);
+      setInboxConversations([]);
+      setArchivedConversations([]);
       setActiveId("");
       setLoading(false);
       return;
     }
 
     try {
-      const nextConversations = await getConversations({
-        userId: currentUserId,
-        includeArchived,
-      });
-      setConversations(nextConversations);
-      setActiveId((current) => {
-        if (current && nextConversations.some((entry) => entry.id === current)) {
-          return current;
-        }
-        return nextConversations[0]?.id || "";
-      });
+      const [nextInboxConversations, nextArchivedConversations] = await Promise.all([
+        getConversations({ userId: currentUserId, includeArchived: false }),
+        getConversations({ userId: currentUserId, includeArchived: true }),
+      ]);
+
+      setInboxConversations(nextInboxConversations);
+      setArchivedConversations(nextArchivedConversations);
     } catch (error) {
-      setConversations([]);
+      setInboxConversations([]);
+      setArchivedConversations([]);
       showSnackbar(error?.message || "Unable to load conversations.");
     } finally {
       setLoading(false);
     }
   };
+
+  const allConversations = useMemo(
+    () => [...inboxConversations, ...archivedConversations],
+    [inboxConversations, archivedConversations],
+  );
 
   useEffect(() => {
     const requestedConversation = searchParams.get("conv");
@@ -116,16 +118,16 @@ const Messages = () => {
       return;
     }
 
-    const exists = conversations.some((entry) => entry.id === requestedConversation);
+    const exists = allConversations.some((entry) => entry.id === requestedConversation);
     if (exists) {
       setActiveId(requestedConversation);
     }
-  }, [searchParams, conversations]);
+  }, [searchParams, allConversations]);
 
   useEffect(() => {
     setLoading(true);
     refreshConversations();
-  }, [currentUserId, showArchived]);
+  }, [currentUserId]);
 
   useEffect(() => {
     const handleUpdated = () => {
@@ -134,7 +136,7 @@ const Messages = () => {
 
     window.addEventListener(messagesUpdatedEventName, handleUpdated);
     return () => window.removeEventListener(messagesUpdatedEventName, handleUpdated);
-  }, [currentUserId, showArchived]);
+  }, [currentUserId]);
 
   useEffect(() => {
     if (!activeId || !currentUserId) {
@@ -205,9 +207,69 @@ const Messages = () => {
     };
   }, [menuConversationId]);
 
+  const conversationSummaries = useMemo(() => {
+    if (isArchivedMode) {
+      return archivedConversations;
+    }
+
+    if (isBlockedMode) {
+      return inboxConversations.filter((entry) => entry.blocked);
+    }
+
+    return inboxConversations.filter((entry) => !entry.blocked);
+  }, [archivedConversations, inboxConversations, isArchivedMode, isBlockedMode]);
+
+  const tabCounts = useMemo(() => ({
+    inbox: inboxConversations.filter((entry) => !entry.blocked).length,
+    archived: archivedConversations.length,
+    blocked: inboxConversations.filter((entry) => entry.blocked).length,
+  }), [archivedConversations, inboxConversations]);
+
+  const switchConversationMode = (nextMode) => {
+    setViewMode(nextMode);
+    setMessageText("");
+    setMenuConversationId("");
+    setActiveId("");
+  };
+
+  const handleModeTabKeyDown = (event, mode) => {
+    const tabOrder = ["inbox", "archived", "blocked"];
+    const currentIndex = tabOrder.indexOf(mode);
+
+    if (currentIndex === -1) {
+      return;
+    }
+
+    let nextIndex = currentIndex;
+
+    if (event.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % tabOrder.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (currentIndex - 1 + tabOrder.length) % tabOrder.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = tabOrder.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    const nextMode = tabOrder[nextIndex];
+    switchConversationMode(nextMode);
+
+    const tabList = event.currentTarget.parentElement;
+    const nextTab = tabList?.querySelector(`[data-view-mode="${nextMode}"]`);
+    if (nextTab instanceof HTMLElement) {
+      nextTab.focus();
+    }
+  };
+
   const activeConversation = useMemo(
-    () => conversations.find((entry) => entry.id === activeId) || conversations[0],
-    [conversations, activeId]
+    () =>
+      conversationSummaries.find((entry) => entry.id === activeId)
+      || conversationSummaries[0],
+    [conversationSummaries, activeId]
   );
 
   const isChatDisabled = useMemo(
@@ -232,8 +294,6 @@ const Messages = () => {
       setShowVerification(false);
     }
   }, [canSubmitClaimVerification, showVerification]);
-
-  const conversationSummaries = useMemo(() => conversations, [conversations]);
 
   const filteredConversations = useMemo(() => {
     const query = conversationQuery.trim().toLowerCase();
@@ -417,6 +477,11 @@ const Messages = () => {
     const nextBlocked = !activeConversation.blocked;
     try {
       await updateConversationFlags(activeConversation.id, { blocked: nextBlocked });
+      if (nextBlocked) {
+        setViewMode("blocked");
+      } else if (isBlockedMode) {
+        setViewMode("inbox");
+      }
       await refreshConversations();
       showSnackbar(nextBlocked ? "Conversation blocked." : "Conversation unblocked.");
     } catch (error) {
@@ -469,22 +534,55 @@ const Messages = () => {
       <div className="messages-layout">
         <aside className="messages-sidebar">
           <div className="messages-sidebar-head">
-            <h3>{showArchived ? "Archived chats" : "Conversations"}</h3>
+            <h3>
+              {isArchivedMode
+                ? "Archived chats"
+                : isBlockedMode
+                  ? "Blocked chats"
+                  : "Conversations"}
+            </h3>
             <span>{conversationSummaries.length}</span>
           </div>
 
-          <div className="messages-sidebar-toolbar">
+          <div className="messages-sidebar-toolbar" role="tablist" aria-label="Conversation filters">
             <button
               type="button"
-              className="messages-ghost-button"
-              onClick={() => {
-                setShowArchived((current) => !current);
-                setMessageText("");
-                setMenuConversationId("");
-                setActiveId("");
-              }}
+              role="tab"
+              data-view-mode="inbox"
+              aria-selected={viewMode === "inbox"}
+              tabIndex={viewMode === "inbox" ? 0 : -1}
+              className={`messages-tab-button ${viewMode === "inbox" ? "messages-tab-button-active" : ""}`}
+              onClick={() => switchConversationMode("inbox")}
+              onKeyDown={(event) => handleModeTabKeyDown(event, "inbox")}
             >
-              <FontAwesomeIcon icon={faBoxArchive} /> {showArchived ? "Back to inbox" : "View archived chats"}
+              <span><FontAwesomeIcon icon={faShieldHalved} /> Inbox</span>
+              <em>{tabCounts.inbox}</em>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              data-view-mode="archived"
+              aria-selected={isArchivedMode}
+              tabIndex={isArchivedMode ? 0 : -1}
+              className={`messages-tab-button ${isArchivedMode ? "messages-tab-button-active" : ""}`}
+              onClick={() => switchConversationMode("archived")}
+              onKeyDown={(event) => handleModeTabKeyDown(event, "archived")}
+            >
+              <span><FontAwesomeIcon icon={faBoxArchive} /> Archived</span>
+              <em>{tabCounts.archived}</em>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              data-view-mode="blocked"
+              aria-selected={isBlockedMode}
+              tabIndex={isBlockedMode ? 0 : -1}
+              className={`messages-tab-button ${isBlockedMode ? "messages-tab-button-active" : ""}`}
+              onClick={() => switchConversationMode("blocked")}
+              onKeyDown={(event) => handleModeTabKeyDown(event, "blocked")}
+            >
+              <span><FontAwesomeIcon icon={faBan} /> Blocked</span>
+              <em>{tabCounts.blocked}</em>
             </button>
           </div>
 
@@ -498,7 +596,11 @@ const Messages = () => {
             />
           </label>
 
-          <ul className="messages-conversation-list" ref={menuWrapRef}>
+          <ul
+            key={viewMode}
+            className={`messages-conversation-list messages-conversation-list-${viewMode}`}
+            ref={menuWrapRef}
+          >
             {loading ? (
               <li>
                 <p>Loading conversations...</p>
@@ -539,7 +641,7 @@ const Messages = () => {
                     </button>
                     {menuConversationId === entry.id ? (
                       <div className="messages-conversation-menu" role="menu" aria-label="Conversation actions menu">
-                        {!showArchived ? (
+                        {!isArchivedMode && !isBlockedMode ? (
                           <button
                             type="button"
                             role="menuitem"
@@ -607,7 +709,7 @@ const Messages = () => {
                 </div>
               ) : null}
 
-              {!showArchived && canSubmitClaimVerification ? (
+              {!isArchivedMode && !isBlockedMode && canSubmitClaimVerification ? (
                 <button type="button" className="messages-claim-button" onClick={() => setShowVerification((open) => !open)}>
                   <FontAwesomeIcon icon={faCircleCheck} /> This is my item (claim verification)
                 </button>
@@ -626,9 +728,9 @@ const Messages = () => {
                 ))}
               </div>
 
-              {showArchived ? (
+              {isArchivedMode ? (
                 <div className="messages-archive-note">
-                  This conversation is archived. Use Back to inbox when you want to continue active chats.
+                  This conversation is archived. Switch to the Inbox tab when you want to continue active chats.
                 </div>
               ) : (
                 <div className="messages-input-row">
@@ -660,8 +762,22 @@ const Messages = () => {
             </>
           ) : (
             <div className="messages-empty-state">
-              <p>{currentUserId ? (showArchived ? "No archived chats yet." : "No conversations yet.") : "Sign in to view your messages."}</p>
-              <small>{showArchived ? "Archived conversations will appear here." : "New secure chats will appear here when a match is created."}</small>
+              <p>
+                {currentUserId
+                  ? isArchivedMode
+                    ? "No archived chats yet."
+                    : isBlockedMode
+                      ? "No blocked chats yet."
+                      : "No conversations yet."
+                  : "Sign in to view your messages."}
+              </p>
+              <small>
+                {isArchivedMode
+                  ? "Archived conversations will appear here."
+                  : isBlockedMode
+                    ? "Blocked conversations will appear here."
+                    : "New secure chats will appear here when a match is created."}
+              </small>
             </div>
           )}
         </section>
