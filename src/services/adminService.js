@@ -697,7 +697,7 @@ export const removeFlaggedContent = async ({ flagId, itemId }) => {
   if (itemId) {
     const { error: itemError } = await supabase
       .from("items")
-      .update({ status: "resolved" })
+      .update({ status: "content_removed" })
       .eq("id", itemId);
 
     if (itemError) {

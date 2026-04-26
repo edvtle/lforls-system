@@ -5,9 +5,11 @@ import { gsap } from "gsap";
 import {
   faChartLine,
   faBuildingColumns,
+  faCloudArrowUp,
   faGear,
   faGraduationCap,
   faEnvelope,
+  faImage,
   faListCheck,
   faMoon,
   faPen,
@@ -26,9 +28,17 @@ import { isSupabaseConfigured } from "../services/supabaseClient";
 import { deleteUserReportById, getUserReports, reportsUpdatedEventName, updateUserReportById } from "../utils/reportStore";
 import "../styles/Profile.css";
 
-const reportFilters = ["All", "Lost", "Found", "Claimed"];
+const reportFilters = ["All", "Lost", "Found", "Claimed", "Content removed"];
 const reportCategoryOptions = ["Electronics", "Wallet", "Bag", "ID", "Clothing", "Others"];
 const reportContactMethodOptions = ["Email", "Phone"];
+const DISMISSED_REMOVED_REPORTS_KEY = "lforls:dismissed-removed-reports";
+const fileToDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Unable to read image file."));
+    reader.readAsDataURL(file);
+  });
 
 const createReportDraft = (entry = {}) => {
   const hasCustomCategory = Boolean(entry.customCategory || (entry.category === "Others" && entry.categoryDisplay));
@@ -47,6 +57,10 @@ const createReportDraft = (entry = {}) => {
     contactMethod: entry.contactMethod || "Email",
     contactValue: entry.contactValue || "",
     notifyOnMatch: Boolean(entry.notifyOnMatch),
+    gallery: Array.isArray(entry.gallery) && entry.gallery.length ? entry.gallery : entry.image ? [entry.image] : [],
+    replacementImageFile: null,
+    replacementImagePreview: "",
+    replacementImageIndex: null,
   };
 };
 
@@ -69,6 +83,14 @@ const getStoredThemeMode = () => {
   return localStorage.getItem("lforls:themeMode") || "dark";
 };
 
+const getDismissedRemovedReportIds = () => {
+  try {
+    return JSON.parse(localStorage.getItem(DISMISSED_REMOVED_REPORTS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+};
+
 const toLocalReportCard = (report) => ({
   ...report,
   source: "local",
@@ -86,6 +108,8 @@ const Profile = () => {
   const [editingReportId, setEditingReportId] = useState("");
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingReportData, setEditingReportData] = useState(null);
+  const [isReportSaving, setIsReportSaving] = useState(false);
+  const [dismissedRemovedReportIds, setDismissedRemovedReportIds] = useState(getDismissedRemovedReportIds);
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
   const [accountProfile, setAccountProfile] = useState({
     name: "User Demo",
@@ -103,6 +127,8 @@ const Profile = () => {
     themeMode: getStoredThemeMode(),
   });
   const workspaceRef = useRef(null);
+  const reportImageInputRef = useRef(null);
+  const reportImageReplaceIndexRef = useRef(0);
 
   const sections = [
     {
@@ -139,6 +165,20 @@ const Profile = () => {
     const timer = setTimeout(() => setSnackbar({ visible: false, message: "" }), 2600);
     return () => clearTimeout(timer);
   }, [snackbar.visible]);
+
+  useEffect(() => {
+    if (!editModalOpen || !editingReportData?.replacementImagePreview) {
+      return undefined;
+    }
+
+    const preview = editingReportData.replacementImagePreview;
+
+    return () => {
+      if (preview?.startsWith("blob:")) {
+        URL.revokeObjectURL(preview);
+      }
+    };
+  }, [editModalOpen, editingReportData?.replacementImagePreview]);
 
   useEffect(() => {
     const refreshReports = () => {
@@ -257,12 +297,34 @@ const Profile = () => {
   }, [activeSection]);
 
   const filteredReports = useMemo(() => {
+    const visibleReports = reports.filter(
+      (entry) => entry.rawStatus !== "content_removed" || !dismissedRemovedReportIds.includes(String(entry.itemId || entry.id)),
+    );
+
     if (reportFilter === "All") {
-      return reports;
+      return visibleReports;
     }
 
-    return reports.filter((entry) => entry.reportStatus === reportFilter);
-  }, [reports, reportFilter]);
+    return visibleReports.filter((entry) => entry.reportStatus === reportFilter);
+  }, [dismissedRemovedReportIds, reports, reportFilter]);
+
+  useEffect(() => {
+    if (!dismissedRemovedReportIds.length) {
+      return;
+    }
+
+    const stillRemovedIds = new Set(
+      reports
+        .filter((entry) => entry.rawStatus === "content_removed")
+        .map((entry) => String(entry.itemId || entry.id)),
+    );
+    const nextDismissedIds = dismissedRemovedReportIds.filter((id) => stillRemovedIds.has(id));
+
+    if (nextDismissedIds.length !== dismissedRemovedReportIds.length) {
+      localStorage.setItem(DISMISSED_REMOVED_REPORTS_KEY, JSON.stringify(nextDismissedIds));
+      setDismissedRemovedReportIds(nextDismissedIds);
+    }
+  }, [dismissedRemovedReportIds, reports]);
 
   const stats = useMemo(() => {
     const itemsReported = reports.length;
@@ -337,7 +399,61 @@ const Profile = () => {
     }
   };
 
+  const closeEditReportModal = () => {
+    if (isReportSaving) {
+      return;
+    }
+
+    setEditModalOpen(false);
+    setEditingReportData(null);
+    if (reportImageInputRef.current) {
+      reportImageInputRef.current.value = "";
+    }
+  };
+
+  const handleReplacementImage = (fileList) => {
+    const file = Array.from(fileList || []).find((candidate) => candidate.type?.startsWith("image/"));
+
+    if (!file) {
+      showSnackbar("Choose an image file.");
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+    const imageIndex = reportImageReplaceIndexRef.current || 0;
+
+    setEditingReportData((current) => ({
+      ...current,
+      replacementImageFile: file,
+      replacementImagePreview: preview,
+      replacementImageIndex: imageIndex,
+    }));
+  };
+
+  const startImageReplacement = (imageIndex) => {
+    reportImageReplaceIndexRef.current = imageIndex;
+    if (reportImageInputRef.current) {
+      reportImageInputRef.current.value = "";
+      reportImageInputRef.current.click();
+    }
+  };
+
+  const clearReplacementImage = () => {
+    setEditingReportData((current) => ({
+      ...current,
+      replacementImageFile: null,
+      replacementImagePreview: "",
+      replacementImageIndex: null,
+    }));
+
+    if (reportImageInputRef.current) {
+      reportImageInputRef.current.value = "";
+    }
+  };
+
   const saveReportChanges = async (entry) => {
+    setIsReportSaving(true);
+
     try {
       if (entry.source === "supabase" && isSupabaseConfigured && session?.user?.id) {
         const updated = await updateItemReport({
@@ -358,19 +474,42 @@ const Profile = () => {
             notifyOnMatch: entry.notifyOnMatch,
             reportStatus: entry.reportStatus,
             status: entry.reportType === "found" ? "open" : "open",
+            imageFile: entry.replacementImageFile,
+            imageIndex: entry.replacementImageIndex,
           },
         });
 
         setReports((current) => current.map((item) => (item.id === entry.id ? updated : item)));
       } else {
-        updateUserReportById(entry.id, entry);
-        setReports((current) => current.map((item) => (item.id === entry.id ? { ...item, ...entry } : item)));
+        let nextEntry = entry;
+
+        if (entry.replacementImageFile) {
+          const replacementImage = await fileToDataUrl(entry.replacementImageFile);
+          const currentGallery = Array.isArray(entry.gallery) && entry.gallery.length ? [...entry.gallery] : entry.image ? [entry.image] : [];
+          const replaceIndex = Number.isInteger(entry.replacementImageIndex) ? entry.replacementImageIndex : 0;
+          const nextGallery = currentGallery.length ? currentGallery : [replacementImage];
+          nextGallery[Math.min(Math.max(replaceIndex, 0), nextGallery.length - 1)] = replacementImage;
+          nextEntry = {
+            ...entry,
+            image: nextGallery[0] || entry.image,
+            gallery: nextGallery,
+          };
+        }
+
+        const { replacementImageFile, replacementImagePreview, replacementImageIndex, ...storedEntry } = nextEntry;
+        updateUserReportById(entry.id, storedEntry);
+        setReports((current) => current.map((item) => (item.id === entry.id ? { ...item, ...storedEntry } : item)));
       }
 
       setEditingReportId("");
+      clearReplacementImage();
       showSnackbar("Report changes saved.");
+      return true;
     } catch (error) {
       showSnackbar(error?.message || "Unable to save report changes.");
+      return false;
+    } finally {
+      setIsReportSaving(false);
     }
   };
 
@@ -381,6 +520,16 @@ const Profile = () => {
     }
 
     await deleteReport(entry);
+  };
+
+  const dismissRemovedReport = (entry) => {
+    const reportId = String(entry.itemId || entry.id);
+    setDismissedRemovedReportIds((current) => {
+      const next = [...new Set([...current, reportId])];
+      localStorage.setItem(DISMISSED_REMOVED_REPORTS_KEY, JSON.stringify(next));
+      return next;
+    });
+    showSnackbar("Removed from your report history.");
   };
 
   const setEntryReportStatus = (id, nextStatus) => {
@@ -432,43 +581,66 @@ const Profile = () => {
 
       <div className={filteredReports.length === 1 ? "profile-report-grid profile-report-grid-compact" : "profile-report-grid"}>
         {filteredReports.length ? (
-          filteredReports.map((entry) => (
-            <article key={entry.id} className="profile-report-card">
+          filteredReports.map((entry) => {
+            const isContentRemoved = entry.rawStatus === "content_removed";
+            const statusClass = entry.reportStatus.toLowerCase().replace(/\s+/g, "-");
+
+            return (
+            <article key={entry.id} className={`profile-report-card ${isContentRemoved ? "profile-report-card-removed" : ""}`}>
               <img src={entry.image} alt={entry.name} />
               <div className="profile-report-copy">
                 <p className="page-kicker">{entry.categoryDisplay || entry.category}</p>
                 <h4>{entry.name}</h4>
-                <span className={`profile-status profile-status-${entry.reportStatus.toLowerCase()}`}>{entry.reportStatus}</span>
+                <span className={`profile-status profile-status-${statusClass}`}>{entry.reportStatus}</span>
+
+                {isContentRemoved ? (
+                  <p className="profile-report-admin-message">
+                    Admin action: this report was removed from public listings after review. You can remove it from your history, and it will return here if an admin reopens it.
+                  </p>
+                ) : null}
 
                 <p className="profile-report-meta">{entry.location} • {formatRelative(entry.createdAt)}</p>
 
                 <div className="profile-card-actions">
-                  <Link to={`/details/${entry.itemId || entry.id}`} className="hero-button hero-button-lost">
-                    View
-                  </Link>
-                  <button
-                    type="button"
-                    className="profile-inline-btn"
-                    onClick={() => {
-                      setEditingReportData(createReportDraft(entry));
-                      setEditModalOpen(true);
-                    }}
-                  >
-                    <FontAwesomeIcon icon={faPen} /> Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="profile-inline-btn profile-inline-btn-danger profile-inline-btn-icon-only"
-                    onClick={() => deleteReportById(entry.id)}
-                    aria-label="Delete report"
-                    title="Delete report"
-                  >
-                    <FontAwesomeIcon icon={faTrash} />
-                  </button>
+                  {isContentRemoved ? (
+                    <button
+                      type="button"
+                      className="profile-inline-btn profile-inline-btn-danger"
+                      onClick={() => dismissRemovedReport(entry)}
+                    >
+                      <FontAwesomeIcon icon={faTrash} /> Remove from history
+                    </button>
+                  ) : (
+                    <>
+                      <Link to={`/details/${entry.itemId || entry.id}`} className="hero-button hero-button-lost">
+                        View
+                      </Link>
+                      <button
+                        type="button"
+                        className="profile-inline-btn"
+                        onClick={() => {
+                          setEditingReportData(createReportDraft(entry));
+                          setEditModalOpen(true);
+                        }}
+                      >
+                        <FontAwesomeIcon icon={faPen} /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="profile-inline-btn profile-inline-btn-danger profile-inline-btn-icon-only"
+                        onClick={() => deleteReportById(entry.id)}
+                        aria-label="Delete report"
+                        title="Delete report"
+                      >
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </article>
-          ))
+            );
+          })
         ) : (
           <div className="profile-empty-state">
             <h4>No reports yet</h4>
@@ -737,10 +909,7 @@ const Profile = () => {
       {snackbar.visible ? <div className="details-snackbar">{snackbar.message}</div> : null}
           <Modal
             isOpen={editModalOpen}
-            onClose={() => {
-              setEditModalOpen(false);
-              setEditingReportData(null);
-            }}
+            onClose={closeEditReportModal}
             ariaLabel="Edit report"
             overlayClassName="details-flow-modal profile-edit-modal"
             panelClassName="details-flow-panel profile-edit-panel"
@@ -760,10 +929,7 @@ const Profile = () => {
                   <button
                     type="button"
                     className="details-close-button"
-                    onClick={() => {
-                      setEditModalOpen(false);
-                      setEditingReportData(null);
-                    }}
+                    onClick={closeEditReportModal}
                     aria-label="Close dialog"
                   >
                     <FontAwesomeIcon icon={faXmark} />
@@ -772,12 +938,63 @@ const Profile = () => {
 
                 <form
                   className="details-flow-form profile-edit-form"
-                  onSubmit={(event) => {
+                  onSubmit={async (event) => {
                     event.preventDefault();
-                    saveReportChanges(editingReportData);
-                    setEditModalOpen(false);
+                    const didSave = await saveReportChanges(editingReportData);
+                    if (didSave) {
+                      closeEditReportModal();
+                    }
                   }}
                 >
+                  <section className="profile-report-image-editor" aria-label="Report images">
+                    <div className="profile-report-image-editor-head">
+                      <div>
+                        <span>Report Images</span>
+                        <strong>Select an image to replace</strong>
+                      </div>
+                      <em>{editingReportData.gallery?.length || 1} image{(editingReportData.gallery?.length || 1) > 1 ? "s" : ""}</em>
+                    </div>
+
+                    <input
+                      ref={reportImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="profile-report-image-input"
+                      onChange={(event) => handleReplacementImage(event.target.files)}
+                    />
+
+                    <div className="profile-report-image-preview-grid">
+                      {(editingReportData.gallery?.length ? editingReportData.gallery : editingReportData.image ? [editingReportData.image] : []).map((image, index) => {
+                        const isReplacingThisImage = editingReportData.replacementImageIndex === index && editingReportData.replacementImagePreview;
+                        const previewImage = isReplacingThisImage ? editingReportData.replacementImagePreview : image;
+
+                        return (
+                          <figure
+                            key={`${image}-${index}`}
+                            className={`profile-report-image-tile ${isReplacingThisImage ? "profile-report-image-tile-pending" : ""}`}
+                          >
+                            <img src={previewImage} alt={`Report preview ${index + 1}`} />
+                            <figcaption>
+                              <span>
+                                <FontAwesomeIcon icon={faImage} />
+                                {isReplacingThisImage ? `New image ${index + 1}` : `Current image ${index + 1}`}
+                              </span>
+                              <button type="button" onClick={() => startImageReplacement(index)}>
+                                <FontAwesomeIcon icon={faCloudArrowUp} /> Replace image
+                              </button>
+                            </figcaption>
+                          </figure>
+                        );
+                      })}
+                    </div>
+
+                    {editingReportData.replacementImagePreview ? (
+                      <button type="button" className="profile-report-image-clear" onClick={clearReplacementImage}>
+                        Keep current image
+                      </button>
+                    ) : null}
+                  </section>
+
                   <div className="details-form-grid">
                     <label className="details-form-field">
                       <span>Item Name</span>
@@ -1008,15 +1225,13 @@ const Profile = () => {
                     <button
                       type="button"
                       className="details-ghost-button"
-                      onClick={() => {
-                        setEditModalOpen(false);
-                        setEditingReportData(null);
-                      }}
+                      onClick={closeEditReportModal}
+                      disabled={isReportSaving}
                     >
                       Cancel
                     </button>
-                    <button type="submit" className="details-flow-submit">
-                      Save Changes
+                    <button type="submit" className="details-flow-submit" disabled={isReportSaving}>
+                      {isReportSaving ? "Saving..." : "Save Changes"}
                     </button>
                   </div>
                 </form>

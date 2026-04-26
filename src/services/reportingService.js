@@ -140,8 +140,12 @@ const isRlsPolicyError = (error) => {
 };
 
 const toProfileReportCard = (item) => {
-  const images = Array.isArray(item.item_images) ? item.item_images : [];
+  const images = sortItemImagesForReplacement(Array.isArray(item.item_images) ? item.item_images : []);
   const primary = images.find((entry) => entry.is_primary) || images[0];
+  const gallery = images
+    .map((entry) => entry.public_url)
+    .filter(Boolean);
+  const uniqueGallery = [...new Set(gallery)];
   const hasCustomCategory = Boolean(
     item.custom_category && String(item.custom_category).trim(),
   );
@@ -150,7 +154,9 @@ const toProfileReportCard = (item) => {
     : item.category || "Others";
 
   const reportStatus =
-    item.status === "claimed" || item.status === "resolved"
+    item.status === "content_removed"
+      ? "Content removed"
+      : item.status === "claimed" || item.status === "resolved"
       ? "Claimed"
       : item.type === "found"
         ? "Found"
@@ -161,13 +167,15 @@ const toProfileReportCard = (item) => {
     itemId: item.id,
     source: "supabase",
     reportType: item.type,
+    rawStatus: item.status || "open",
     name: item.item_name || "Unnamed item",
     category: categoryLabel,
     categoryDisplay: item.custom_category || item.category || "Others",
     customCategory: item.custom_category || "",
     location: item.location_text || "Unknown",
     locationText: item.location_text || "",
-    image: primary?.public_url || REPORT_FALLBACK_IMAGE,
+    image: primary?.public_url || uniqueGallery[0] || REPORT_FALLBACK_IMAGE,
+    gallery: uniqueGallery.length ? uniqueGallery : [REPORT_FALLBACK_IMAGE],
     reportStatus,
     matchPercent: Math.max(0, Math.min(100, Number(item.match_score || 0))),
     path: "/matches",
@@ -288,6 +296,53 @@ const uploadItemImages = async ({ reporterId, itemId, files = [] }) => {
   }
 
   return uploads;
+};
+
+const sortItemImagesForReplacement = (images = []) =>
+  [...images].sort((left, right) => Number(Boolean(right.is_primary)) - Number(Boolean(left.is_primary)));
+
+const replaceItemImage = async ({ reporterId, itemId, file, imageIndex = 0 }) => {
+  if (!(file instanceof File)) {
+    return null;
+  }
+
+  const { data: existingImages, error: existingImagesError } = await supabase
+    .from("item_images")
+    .select("id, storage_path, is_primary")
+    .eq("item_id", itemId);
+
+  if (existingImagesError) throw existingImagesError;
+
+  const sortedImages = sortItemImagesForReplacement(existingImages || []);
+  const safeIndex = sortedImages.length
+    ? Math.min(Math.max(Number(imageIndex) || 0, 0), sortedImages.length - 1)
+    : 0;
+  const imageToReplace = sortedImages[safeIndex] || null;
+  const uploaded = await uploadItemImage({
+    reporterId,
+    itemId,
+    file,
+    isPrimary: imageToReplace?.is_primary ?? true,
+  });
+
+  if (imageToReplace?.id) {
+    const { error: deleteRowsError } = await supabase
+      .from("item_images")
+      .delete()
+      .eq("id", imageToReplace.id);
+
+    if (deleteRowsError) throw deleteRowsError;
+  }
+
+  if (imageToReplace?.storage_path) {
+    const { error: storageDeleteError } = await supabase.storage
+      .from("item-images")
+      .remove([imageToReplace.storage_path]);
+
+    if (storageDeleteError) throw storageDeleteError;
+  }
+
+  return uploaded;
 };
 
 const createMatchNotifications = async ({ currentItem, matchRows }) => {
@@ -586,9 +641,30 @@ export const updateItemReport = async ({ reporterId, itemId, payload }) => {
     updateResult = await updateItem(baseUpdates);
   }
 
-  const { data, error } = updateResult;
+  let { data, error } = updateResult;
 
   if (error) throw error;
+
+  if (payload.imageFile instanceof File) {
+    await replaceItemImage({
+      reporterId,
+      itemId,
+      file: payload.imageFile,
+      imageIndex: payload.imageIndex,
+    });
+
+    const refreshedResult = await supabase
+      .from("items")
+      .select(
+        "id, reporter_id, type, status, item_name, category, custom_category, location_text, description, color, brand, identifiers, custody_note, contact_method, contact_value, notify_on_match, match_score, created_at, item_images(public_url, is_primary)",
+      )
+      .eq("id", itemId)
+      .eq("reporter_id", reporterId)
+      .single();
+
+    if (refreshedResult.error) throw refreshedResult.error;
+    data = refreshedResult.data;
+  }
 
   return toProfileReportCard(data);
 };

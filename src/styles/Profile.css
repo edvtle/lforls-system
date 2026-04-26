@@ -314,10 +314,21 @@
   display: grid;
 }
 
+.profile-report-card-removed {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(15, 18, 16, 0.7);
+  filter: grayscale(0.9);
+  opacity: 0.72;
+}
+
 .profile-report-card img {
   width: 100%;
   aspect-ratio: 16 / 10;
   object-fit: cover;
+}
+
+.profile-report-card-removed img {
+  filter: grayscale(1) brightness(0.72);
 }
 
 .profile-empty-state {
@@ -372,9 +383,26 @@
   background: rgba(110, 224, 65, 0.9);
 }
 
+.profile-status-content-removed {
+  color: #f1f5f9;
+  background: rgba(100, 116, 139, 0.82);
+}
+
 .profile-report-meta {
   color: #b3c5ac;
   font-size: 0.84rem;
+}
+
+.profile-report-admin-message {
+  margin: 0;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.8rem;
+  background: rgba(148, 163, 184, 0.1);
+  color: #d8ded6;
+  padding: 0.62rem 0.68rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .profile-edit-grid {
@@ -682,6 +710,17 @@
   box-shadow: 0 18px 32px rgba(0, 0, 0, 0.08);
 }
 
+.profile-page.profile-theme-light .profile-report-card-removed {
+  border-color: rgba(100, 116, 139, 0.26);
+  background: rgba(241, 245, 249, 0.92);
+}
+
+.profile-page.profile-theme-light .profile-report-card-removed:hover {
+  transform: none;
+  border-color: rgba(100, 116, 139, 0.3);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.06);
+}
+
 .profile-page.profile-theme-light .profile-report-copy {
   background: transparent;
   padding: 0.85rem 0.9rem 0.95rem;
@@ -730,6 +769,18 @@
 .profile-page.profile-theme-light .profile-status-claimed {
   color: #071306;
   background: #4ec83a;
+}
+
+.profile-page.profile-theme-light .profile-status-content-removed,
+.profile-page.profile-theme-light .profile-report-copy .profile-status-content-removed {
+  color: #ffffff;
+  background: rgba(100, 116, 139, 0.86);
+}
+
+.profile-page.profile-theme-light .profile-report-admin-message {
+  border-color: rgba(100, 116, 139, 0.2);
+  background: rgba(100, 116, 139, 0.08);
+  color: #475569;
 }
 
 .profile-page.profile-theme-light .profile-card-actions .hero-button-lost {
@@ -1016,6 +1067,137 @@
   min-height: 8.4rem;
 }
 
+.profile-report-image-editor {
+  border: 1px solid rgba(143, 231, 97, 0.18);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(143, 231, 97, 0.08), transparent 34%),
+    rgba(255, 255, 255, 0.03);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.profile-report-image-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.profile-report-image-editor-head div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.profile-report-image-editor-head span {
+  color: #9fcf8e;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.profile-report-image-editor-head strong {
+  color: #f1faec;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.profile-report-image-editor-head em {
+  border: 1px solid rgba(143, 231, 97, 0.2);
+  border-radius: 999px;
+  background: rgba(143, 231, 97, 0.1);
+  color: #ddf5d5;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.profile-report-image-input {
+  display: none;
+}
+
+.profile-report-image-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.profile-report-image-tile {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(143, 231, 97, 0.16);
+  border-radius: 0.9rem;
+  background: rgba(4, 9, 5, 0.74);
+}
+
+.profile-report-image-tile-pending {
+  border-color: rgba(143, 231, 97, 0.45);
+  box-shadow: 0 0 0 1px rgba(143, 231, 97, 0.14);
+}
+
+.profile-report-image-tile img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  display: block;
+  object-fit: cover;
+}
+
+.profile-report-image-tile figcaption {
+  color: #dcebd5;
+  padding: 0.48rem 0.55rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.2;
+  display: grid;
+  gap: 0.48rem;
+}
+
+.profile-report-image-tile figcaption span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.profile-report-image-tile figcaption button {
+  width: 100%;
+  border: 1px solid rgba(143, 231, 97, 0.24);
+  border-radius: 0.72rem;
+  background: rgba(143, 231, 97, 0.1);
+  color: #ecf8e7;
+  padding: 0.45rem 0.5rem;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.15;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.profile-report-image-tile figcaption button:hover {
+  border-color: rgba(143, 231, 97, 0.58);
+  background: rgba(93, 214, 44, 0.16);
+}
+
+.profile-report-image-clear {
+  justify-self: start;
+  border: 1px solid rgba(143, 231, 97, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #e7f6df;
+  padding: 0.45rem 0.7rem;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .profile-edit-actions {
   position: sticky;
   bottom: 0;
@@ -1060,10 +1242,33 @@
 }
 
 .profile-page.profile-theme-light .profile-edit-form .details-form-field,
-.profile-page.profile-theme-light .profile-edit-form .profile-notify-field {
+.profile-page.profile-theme-light .profile-edit-form .profile-notify-field,
+.profile-page.profile-theme-light .profile-report-image-editor {
   border-color: rgba(0, 0, 0, 0.1);
   background: rgba(255, 255, 255, 0.88);
 } 
+
+.profile-page.profile-theme-light .profile-report-image-editor-head strong,
+.profile-page.profile-theme-light .profile-report-image-tile figcaption {
+  color: #111111;
+}
+
+.profile-page.profile-theme-light .profile-report-image-editor-head span {
+  color: #3f5f36;
+}
+
+.profile-page.profile-theme-light .profile-report-image-tile,
+.profile-page.profile-theme-light .profile-report-image-clear {
+  border-color: rgba(47, 143, 70, 0.2);
+  background: rgba(255, 255, 255, 0.92);
+  color: #111111;
+}
+
+.profile-page.profile-theme-light .profile-report-image-tile figcaption button {
+  border-color: rgba(47, 143, 70, 0.22);
+  background: rgba(47, 143, 70, 0.08);
+  color: #1f4f2a;
+}
 
 .profile-page.profile-theme-light .profile-edit-form .details-form-field input:not([type="checkbox"]),
 .profile-page.profile-theme-light .profile-edit-form .details-form-field select,
@@ -1099,6 +1304,10 @@
 
   .profile-edit-form .details-form-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-report-image-preview-grid {
+    grid-template-columns: 1fr;
   }
 
   .profile-edit-actions {

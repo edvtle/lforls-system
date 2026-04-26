@@ -5,12 +5,14 @@ import {
   faBoxOpen,
   faChartColumn,
   faCircleCheck,
+  faCircleExclamation,
   faFileCircleExclamation,
   faFilter,
   faFlag,
   faGavel,
   faMagnifyingGlassPlus,
   faTrashCan,
+  faTriangleExclamation,
   faXmark,
   faShield,
   faUsers,
@@ -79,6 +81,19 @@ const barColors = [
   "#67d74f",
   "#74e95f",
 ];
+
+const confirmToneMeta = {
+  warning: {
+    icon: faTriangleExclamation,
+    kicker: "Review change",
+    note: "This update will be applied immediately after confirmation.",
+  },
+  danger: {
+    icon: faCircleExclamation,
+    kicker: "Destructive action",
+    note: "Check the details carefully before continuing.",
+  },
+};
 
 const iconForLog = {
   item: faCircleCheck,
@@ -310,7 +325,7 @@ const AdminPanel = () => {
   };
 
   const openConfirmAction = ({
-    title = "Are you sure?",
+    title = "Confirm this action?",
     message,
     confirmLabel = "Confirm",
     tone = "warning",
@@ -357,7 +372,8 @@ const AdminPanel = () => {
 
   const confirmResolveItem = (item) =>
     openConfirmAction({
-      message: `Are you sure you want to mark "${item.name}" as resolved? It will be hidden from Browse.`,
+      title: "Resolve this item?",
+      message: `"${item.name}" will be marked as resolved and hidden from Browse.`,
       confirmLabel: "Resolve Item",
       tone: "warning",
       onConfirm: () => changeItemStatus(item.id, "resolved"),
@@ -365,7 +381,8 @@ const AdminPanel = () => {
 
   const confirmDeleteItem = (item) =>
     openConfirmAction({
-      message: `Are you sure you want to delete "${item.name}"? This action cannot be undone.`,
+      title: "Delete this item?",
+      message: `"${item.name}" will be permanently removed. This action cannot be undone.`,
       confirmLabel: "Delete Item",
       tone: "danger",
       onConfirm: () => removeItem(item.id),
@@ -421,7 +438,8 @@ const AdminPanel = () => {
 
     if (normalizedStatus === "suspended") {
       openConfirmAction({
-        message: `Are you sure you want to suspend ${user.name}?`,
+        title: "Suspend this user?",
+        message: `${user.name} will move to the suspension setup before the restriction is applied.`,
         confirmLabel: "Continue",
         tone: "warning",
         onConfirm: () => openSuspendModal(user),
@@ -431,7 +449,8 @@ const AdminPanel = () => {
 
     if (normalizedStatus === "banned") {
       openConfirmAction({
-        message: `Are you sure you want to ban ${user.name}? This account will be blocked from using the system.`,
+        title: "Ban this user?",
+        message: `${user.name} will be blocked from using the system.`,
         confirmLabel: "Ban User",
         tone: "danger",
         onConfirm: () =>
@@ -459,7 +478,8 @@ const AdminPanel = () => {
 
   const confirmDeleteUser = (user) =>
     openConfirmAction({
-      message: `Are you sure you want to delete ${user.name}? This removes the account from the admin user list.`,
+      title: "Delete this user?",
+      message: `${user.name} will be removed from the admin user list.`,
       confirmLabel: "Delete User",
       tone: "danger",
       onConfirm: () => removeUser(user.id),
@@ -585,7 +605,8 @@ const AdminPanel = () => {
 
   const confirmRemoveContentFromFlag = (flag) =>
     openConfirmAction({
-      message: `Are you sure you want to remove the content for report ${flag.id}? The related item will be hidden from Browse.`,
+      title: "Remove reported content?",
+      message: `The item related to report ${flag.id} will be hidden from Browse.`,
       confirmLabel: "Remove Content",
       tone: "danger",
       onConfirm: () => removeContentFromFlag(flag),
@@ -641,7 +662,8 @@ const AdminPanel = () => {
 
   const confirmSuspendChatFromFlag = (flag) =>
     openConfirmAction({
-      message: `Are you sure you want to suspend this chat conversation? Users will no longer be able to send messages in it.`,
+      title: "Suspend this chat?",
+      message: "Users in this conversation will no longer be able to send messages.",
       confirmLabel: "Suspend Chat",
       tone: "danger",
       onConfirm: () => suspendChatFromFlag(flag),
@@ -708,7 +730,8 @@ const AdminPanel = () => {
 
   const confirmDeleteReportRow = (flag) =>
     openConfirmAction({
-      message: `Are you sure you want to delete report ${flag.id}? This removes it from the admin reports table.`,
+      title: "Delete this report?",
+      message: `Report ${flag.id} will be removed from the admin reports table.`,
       confirmLabel: "Delete Report",
       tone: "danger",
       onConfirm: () => deleteReportRow(flag),
@@ -1280,6 +1303,9 @@ const AdminPanel = () => {
   const selectedFlagImageIndex = selectedFlagGallery.findIndex(
     (image) => image === selectedFlagImage,
   );
+  const activeConfirmMeta = confirmAction
+    ? confirmToneMeta[confirmAction.tone] || confirmToneMeta.warning
+    : confirmToneMeta.warning;
 
   return (
     <main className="admin-shell">
@@ -1874,14 +1900,18 @@ const AdminPanel = () => {
             aria-modal="true"
             aria-label={confirmAction.title}
           >
-            <div className="admin-modal-header">
-              <div>
-                <p className="admin-modal-kicker">Confirm action</p>
+            <div className="admin-confirm-hero">
+              <span className="admin-confirm-icon" aria-hidden="true">
+                <FontAwesomeIcon icon={activeConfirmMeta.icon} />
+              </span>
+              <div className="admin-confirm-copy">
+                <p className="admin-modal-kicker">{activeConfirmMeta.kicker}</p>
                 <h3>{confirmAction.title}</h3>
+                <p className="admin-confirm-message">{confirmAction.message}</p>
               </div>
             </div>
 
-            <p className="admin-confirm-message">{confirmAction.message}</p>
+            <p className="admin-confirm-note">{activeConfirmMeta.note}</p>
 
             <div className="admin-modal-actions">
               <button
