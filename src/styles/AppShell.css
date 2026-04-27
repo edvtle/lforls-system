@@ -1505,6 +1505,38 @@ html[data-theme="light"] .match-card-action,
   background: rgba(93, 214, 44, 0.12);
 }
 
+.report-upload-zone-error {
+  border-color: rgba(255, 120, 120, 0.9);
+  background:
+    linear-gradient(180deg, rgba(255, 120, 120, 0.08), rgba(255, 120, 120, 0.03)),
+    rgba(9, 16, 10, 0.72);
+  box-shadow: 0 0 0 1px rgba(255, 120, 120, 0.14);
+}
+
+.report-upload-alert {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(255, 120, 120, 0.42);
+  background:
+    linear-gradient(135deg, rgba(255, 120, 120, 0.16), rgba(255, 173, 96, 0.08)),
+    rgba(28, 10, 10, 0.92);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.18);
+}
+
+.report-upload-alert strong {
+  color: #ffd8d8;
+  font-size: 0.86rem;
+  letter-spacing: 0.02em;
+}
+
+.report-upload-alert span {
+  color: #ffe9e1;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .report-image-preview {
   display: flex;
   gap: 0.85rem;
@@ -2762,6 +2794,35 @@ html[data-theme="light"] .match-card-action,
   border-radius: 1rem;
   border: 1px solid rgba(93, 214, 44, 0.18);
   background: rgba(93, 214, 44, 0.08);
+}
+
+.details-form-success-claim {
+  gap: 1rem;
+  padding: 1.1rem;
+  background:
+    radial-gradient(circle at top right, rgba(143, 231, 97, 0.14), transparent 35%),
+    linear-gradient(160deg, rgba(12, 22, 13, 0.96), rgba(8, 15, 9, 0.98));
+  border-color: rgba(143, 231, 97, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.details-form-success-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.details-form-success-copy strong {
+  color: #f3fbef;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.details-form-success-copy p {
+  margin: 0;
+  color: #d7e7d2;
+  line-height: 1.6;
+  max-width: 40rem;
 }
 
 .details-flow-actions {

@@ -109,6 +109,9 @@ const Profile = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingReportData, setEditingReportData] = useState(null);
   const [isReportSaving, setIsReportSaving] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [reportPendingDelete, setReportPendingDelete] = useState(null);
+  const [isReportDeleting, setIsReportDeleting] = useState(false);
   const [dismissedRemovedReportIds, setDismissedRemovedReportIds] = useState(getDismissedRemovedReportIds);
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
   const [accountProfile, setAccountProfile] = useState({
@@ -377,6 +380,8 @@ const Profile = () => {
   };
 
   const deleteReport = async (entry) => {
+    setIsReportDeleting(true);
+
     try {
       if (entry.source === "supabase" && isSupabaseConfigured && session?.user?.id) {
         await deleteItemReport({
@@ -393,9 +398,13 @@ const Profile = () => {
         setEditingReportId("");
       }
 
+      setDeleteConfirmOpen(false);
+      setReportPendingDelete(null);
       showSnackbar("Report deleted.");
     } catch (error) {
       showSnackbar(error?.message || "Unable to delete report.");
+    } finally {
+      setIsReportDeleting(false);
     }
   };
 
@@ -519,7 +528,17 @@ const Profile = () => {
       return;
     }
 
-    await deleteReport(entry);
+    setReportPendingDelete(entry);
+    setDeleteConfirmOpen(true);
+  };
+
+  const closeDeleteConfirmModal = () => {
+    if (isReportDeleting) {
+      return;
+    }
+
+    setDeleteConfirmOpen(false);
+    setReportPendingDelete(null);
   };
 
   const dismissRemovedReport = (entry) => {
@@ -583,7 +602,7 @@ const Profile = () => {
         {filteredReports.length ? (
           filteredReports.map((entry) => {
             const isContentRemoved = entry.rawStatus === "content_removed";
-            const statusClass = entry.reportStatus.toLowerCase().replace(/\s+/g, "-");
+            const statusClass = String(entry.reportStatus || "unknown").toLowerCase().replace(/\s+/g, "-");
 
             return (
             <article key={entry.id} className={`profile-report-card ${isContentRemoved ? "profile-report-card-removed" : ""}`}>
@@ -1237,6 +1256,64 @@ const Profile = () => {
                 </form>
               </>
             )}
+          </Modal>
+          <Modal
+            isOpen={deleteConfirmOpen}
+            onClose={closeDeleteConfirmModal}
+            ariaLabel="Delete report confirmation"
+            overlayClassName="details-flow-modal profile-edit-modal"
+            panelClassName="details-flow-panel profile-edit-panel"
+          >
+            <div className="details-modal-head">
+              <div>
+                <p className="page-kicker">My Reports</p>
+                <h3 className="page-title">Delete Report?</h3>
+                <p className="details-flow-note">
+                  {reportPendingDelete
+                    ? `This will permanently remove "${reportPendingDelete.name}" from your report history.`
+                    : "This action will permanently remove the selected report from your history."}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="details-close-button"
+                onClick={closeDeleteConfirmModal}
+                aria-label="Close dialog"
+                disabled={isReportDeleting}
+              >
+                <FontAwesomeIcon icon={faXmark} />
+              </button>
+            </div>
+
+            <div className="details-flow-actions profile-edit-actions">
+              <button
+                type="button"
+                className="details-ghost-button"
+                onClick={closeDeleteConfirmModal}
+                disabled={isReportDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="details-flow-submit"
+                onClick={() => {
+                  if (reportPendingDelete) {
+                    void deleteReport(reportPendingDelete);
+                  }
+                }}
+                disabled={isReportDeleting || !reportPendingDelete}
+              >
+                {isReportDeleting ? (
+                  <>
+                    <span className="report-submit-spinner" aria-hidden="true" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Yes, delete report"
+                )}
+              </button>
+            </div>
           </Modal>
     </section>
   );

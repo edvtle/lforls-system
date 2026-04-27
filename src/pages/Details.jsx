@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -23,6 +23,7 @@ import Modal from "../components/Modal";
 import { claimsUpdatedEventName, createClaim, getClaims, updateClaimStatus as persistClaimStatus } from "../utils/claimStore";
 import { getItemById } from "../services/itemsService";
 import { submitItemListingReport } from "../services/reportingService";
+import { updateItemReport } from "../services/reportingService";
 import { updateUserReportByItemId } from "../utils/reportStore";
 import { createNotification } from "../utils/notificationStore";
 import { useAuth } from "../context/AuthContext";
@@ -55,8 +56,8 @@ const getModalConfig = (type) => {
   if (type === "claim") {
     return {
       title: "Verify Ownership",
-      helper: "This helps confirm you are the rightful owner.",
-      submitLabel: "Submit Claim",
+      helper: "Enter the claimant's student details for secure ownership review.",
+      submitLabel: "submit owner details",
     };
   }
 
@@ -70,9 +71,9 @@ const getModalConfig = (type) => {
 
   if (type === "notify") {
     return {
-      title: "Notify the owner",
-      helper: "Alert the owner through the safe in-app workflow.",
-      submitLabel: "Send alert",
+      title: "This is my item",
+      helper: "contact the finder to receive your item back.",
+      submitLabel: "Notify finder",
     };
   }
 
@@ -202,6 +203,7 @@ const Details = () => {
   const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState("");
   const [claimerModalOpen, setClaimerModalOpen] = useState(false);
+  const [confirmClaimSubmitOpen, setConfirmClaimSubmitOpen] = useState(false);
   const [itemClaims, setItemClaims] = useState([]);
   const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
   const [formState, setFormState] = useState({
@@ -215,6 +217,7 @@ const Details = () => {
     reportDetails: "",
     reportOtherReason: "",
   });
+  const claimFormRef = useRef(null);
 
   const showSnackbar = (message) => {
     setSnackbar({ visible: true, message });
@@ -306,6 +309,75 @@ const Details = () => {
   const closeModal = () => {
     setActiveModal(null);
     setSubmissionStatus("");
+    setConfirmClaimSubmitOpen(false);
+  };
+
+  const submitClaimVerification = async () => {
+    if (!item) {
+      return;
+    }
+
+    try {
+      await createClaim({
+        itemId: item.id,
+        claimantId: currentUserId,
+        item: item.name,
+        fullName: formState.fullName,
+        contact: formState.contact,
+        collegeDept: formState.collegeDept,
+        programYear: formState.programYear,
+        routeTo:
+          item.status === "Found" && isReportedByCurrentUser
+            ? "admin-panel"
+            : "item-owner",
+      });
+
+      if (item.status === "Found" && isReportedByCurrentUser && currentUserId) {
+        await updateItemReport({
+          reporterId: currentUserId,
+          itemId: item.id,
+          payload: { status: "claimed", reportStatus: "Claimed" },
+        });
+
+        updateUserReportByItemId(item.id, { reportStatus: "Claimed" });
+        setClaimed(true);
+      }
+
+      createNotification({
+        type: "claim",
+        priority: "high",
+        title: "Claim verification submitted",
+        body: "Verification details saved and routed to claims review.",
+        path: "/admin",
+        recipientId: currentUserId,
+      });
+
+      if (item.status === "Found" && isReportedByCurrentUser) {
+        setSubmissionStatus(
+          "Ownership details have been submitted for admin review. This listing has been temporarily removed from Browse and will remain unavailable until an administrator reopens it.",
+        );
+      } else {
+        setSubmissionStatus("Verification details saved and routed for review.");
+      }
+      setConfirmClaimSubmitOpen(false);
+    } catch (error) {
+      setConfirmClaimSubmitOpen(false);
+      setSubmissionStatus(error?.message || "Unable to process your request right now.");
+    }
+  };
+
+  const handleClaimSubmitRequest = (event) => {
+    event.preventDefault();
+    if (!claimFormRef.current) {
+      return;
+    }
+
+    if (!claimFormRef.current.checkValidity()) {
+      claimFormRef.current.reportValidity();
+      return;
+    }
+
+    setConfirmClaimSubmitOpen(true);
   };
 
   const openDirectConversation = async () => {
@@ -359,11 +431,14 @@ const Details = () => {
     [itemClaims],
   );
 
+  const itemLifecycleStatus = String(item?.rawStatus || item?.lifecycleStatus || "").toLowerCase();
+  const isFoundItemClaimed = item?.status === "Found" && ["claimed", "resolved"].includes(itemLifecycleStatus);
+
   useEffect(() => {
     if (item?.status === "Found") {
-      setClaimed(Boolean(approvedClaim));
+      setClaimed(isFoundItemClaimed);
     }
-  }, [approvedClaim, item?.status]);
+  }, [isFoundItemClaimed, item?.status]);
 
   const handleFoundItemClaimedClick = () => {
     if (claimed) {
@@ -396,26 +471,7 @@ const Details = () => {
     }
 
     if (activeModal?.type === "claim") {
-      createClaim({
-        itemId: item.id,
-        item: item.name,
-        fullName: formState.fullName,
-        contact: formState.contact,
-        collegeDept: formState.collegeDept,
-        programYear: formState.programYear,
-        routeTo: item.status === "Found" ? "item-owner" : "admin-panel",
-      });
-
-      createNotification({
-        type: "claim",
-        priority: "high",
-        title: "Claim verification submitted",
-        body: "Claim submitted. Waiting for approval.",
-        path: "/admin",
-        recipientId: currentUserId,
-      });
-
-      setSubmissionStatus("Claim submitted. Waiting for approval.");
+      setConfirmClaimSubmitOpen(true);
       return;
     }
 
@@ -450,16 +506,30 @@ const Details = () => {
           otherUserId: item.reporterId,
         });
 
-        const starterText = formState.details.trim()
-          || (activeModal?.type === "contact"
-            ? `Hello, I am contacting you about ${item.name}.`
-            : `Hello, I may have information about ${item.name}.`);
+        const starterText =
+          activeModal?.type === "notify"
+            ? `Hi, I believe ${item.name} is mine. Please let me know the next step so I can receive the item back safely.`
+            : formState.details.trim() || `Hello, I am contacting you about ${item.name}.`;
 
         await sendMessage({
           conversationId: conversation.id,
           text: starterText,
           senderId: currentUserId,
         });
+
+        if (activeModal?.type === "notify") {
+          createNotification({
+            type: "message",
+            priority: "high",
+            title: "New message from possible owner",
+            body: `You received a message about ${item.name}.`,
+            path: `/messages?conv=${encodeURIComponent(conversation.id)}`,
+            recipientId: item.reporterId,
+            senderId: currentUserId,
+            senderName: profile?.fullName || session?.user?.email || "",
+          });
+        }
+
         navigate(`/messages?conv=${encodeURIComponent(conversation.id)}`);
         return;
       }
@@ -526,7 +596,8 @@ const Details = () => {
   const backLabel = source === "matches" ? "Back to Matches" : "Back to Browse";
   const currentUserId = session?.user?.id || null;
   const isReportedByCurrentUser = Boolean(currentUserId && item.reporterId && currentUserId === item.reporterId);
-  const hasClaimRequest = item.status === "Found" && itemClaims.length > 0;
+  const hasClaimRequest =
+    item.status === "Found" && isReportedByCurrentUser && itemClaims.length > 0;
   const isLostItem = item.status === "Lost";
   const isFoundItem = item.status === "Found";
   const reporterName = normalizeReporterField(item.reporterName, "Unknown reporter");
@@ -631,11 +702,11 @@ const Details = () => {
               {isReportedByCurrentUser ? (
                 <button
                   type="button"
-                  className={`details-ghost-button ${(claimed || Boolean(approvedClaim)) ? "details-ghost-active" : ""}`}
-                  disabled={item.status === "Found" && (claimed || Boolean(approvedClaim))}
+                  className={`details-ghost-button ${claimed ? "details-ghost-active" : ""}`}
+                  disabled={item.status === "Found" && claimed}
                   onClick={() => {
                     if (item.status === "Found") {
-                      handleFoundItemClaimedClick();
+                      openModal("claim");
                       return;
                     }
 
@@ -644,16 +715,16 @@ const Details = () => {
                   }}
                   title={
                     item.status === "Found"
-                      ? (claimed || Boolean(approvedClaim))
+                      ? claimed
                         ? "Already claimed"
-                        : "Review claimer credentials"
+                        : "Verify ownership"
                       : claimed
                         ? "Marked as claimed"
                         : "Mark as claimed"
                   }
                 >
                   <Icon type="shield" />
-                  {item.status === "Found" ? "Claimed" : claimed ? "Claimed" : "Claim"}
+                  {item.status === "Found" ? (claimed ? "Claimed" : "Claim") : claimed ? "Claimed" : "Claim"}
                 </button>
               ) : null}
             </div>
@@ -809,17 +880,10 @@ const Details = () => {
                   <button
                     type="button"
                     className="details-action-button details-action-primary-lost"
-                    onClick={() => {
-                      if (hasClaimRequest) {
-                        handleFoundItemClaimedClick();
-                        return;
-                      }
-
-                      openModal("claim");
-                    }}
+                    onClick={() => openModal("notify")}
                   >
                     <Icon type="check" />
-                    {hasClaimRequest ? "Claimed" : "This is my item"}
+                    This is my item
                   </button>
 
                   <button
@@ -914,16 +978,27 @@ const Details = () => {
             </div>
 
             {submissionStatus ? (
-              <div className="details-form-success">
+              <div className="details-form-success details-form-success-claim">
                 <Icon type="check" />
-                <p>{submissionStatus}</p>
+                <div className="details-form-success-copy">
+                  <strong>Ownership details submitted</strong>
+                  <p>{submissionStatus}</p>
+                </div>
                 <button type="button" className="details-flow-submit" onClick={closeModal}>
                   Close
                 </button>
               </div>
             ) : (
-              <form className="details-flow-form" onSubmit={handleSubmit}>
-                {activeModal?.type === "claim" ? (
+              <form
+                ref={activeModal?.type === "claim" ? claimFormRef : null}
+                className="details-flow-form"
+                onSubmit={activeModal?.type === "claim" ? handleClaimSubmitRequest : handleSubmit}
+              >
+                {activeModal?.type === "notify" ? (
+                  <div className="details-form-success">
+                    <p>contact the finder to receive your item back.</p>
+                  </div>
+                ) : activeModal?.type === "claim" ? (
                   <>
                     <div className="details-form-grid">
                       <label className="details-form-field">
@@ -961,12 +1036,12 @@ const Details = () => {
                     </label>
 
                     <label className="details-form-field">
-                      <span>Program Year</span>
+                      <span>Program-Year/Section</span>
                       <input
                         type="text"
                         value={formState.programYear}
                         onChange={(event) => setFormState((current) => ({ ...current, programYear: event.target.value }))}
-                        placeholder="e.g., BSIT - 3rd Year"
+                        placeholder="e.g., BSIT - 1A"
                         required
                       />
                     </label>
@@ -1069,6 +1144,8 @@ const Details = () => {
                 <p className="details-flow-note">
                   {activeModal?.type === "claim"
                     ? "This helps confirm you are the rightful owner before release."
+                    : activeModal?.type === "notify"
+                      ? "A generated chat will be sent to the finder and you will be redirected to Messages."
                     : activeModal?.type === "report"
                       ? "Reports are reviewed by admin to keep the platform safe and trustworthy."
                     : "Full contact details stay hidden. The message is routed through the app and reviewed before any next step."}
@@ -1087,6 +1164,47 @@ const Details = () => {
       </Modal>
 
       <Modal
+        isOpen={confirmClaimSubmitOpen}
+        onClose={() => setConfirmClaimSubmitOpen(false)}
+        ariaLabel="Confirm owner details submission"
+        overlayClassName="details-flow-modal"
+        panelClassName="details-flow-panel"
+      >
+        <div className="details-modal-head">
+          <div>
+            <p className="page-kicker">Confirm submission</p>
+            <h3 className="page-title">Are you sure?</h3>
+            <p className="details-flow-note">These details will be sent for admin review before release.</p>
+          </div>
+          <button
+            type="button"
+            className="details-close-button"
+            onClick={() => setConfirmClaimSubmitOpen(false)}
+            aria-label="Close dialog"
+          >
+            <Icon type="close" />
+          </button>
+        </div>
+
+        <div className="details-flow-actions">
+          <button
+            type="button"
+            className="details-ghost-button"
+            onClick={() => setConfirmClaimSubmitOpen(false)}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="details-flow-submit"
+            onClick={submitClaimVerification}
+          >
+            Confirm
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
         isOpen={claimerModalOpen}
         onClose={() => setClaimerModalOpen(false)}
         ariaLabel="Claimer credentials"
@@ -1097,7 +1215,7 @@ const Details = () => {
           <div>
             <p className="page-kicker">Claim review</p>
             <h3 className="page-title">Claimer Credentials</h3>
-            <p className="details-flow-note">Review the claimant details before confirming this found item as claimed.</p>
+            <p className="details-flow-note">Review the claimant information below before approving this item as claimed.</p>
           </div>
 
           <button type="button" className="details-close-button" onClick={() => setClaimerModalOpen(false)} aria-label="Close dialog">

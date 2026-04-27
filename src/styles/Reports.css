@@ -286,6 +286,38 @@
   background: rgba(93, 214, 44, 0.12);
 }
 
+.report-upload-zone-error {
+  border-color: rgba(255, 120, 120, 0.9);
+  background:
+    linear-gradient(180deg, rgba(255, 120, 120, 0.08), rgba(255, 120, 120, 0.03)),
+    rgba(9, 16, 10, 0.72);
+  box-shadow: 0 0 0 1px rgba(255, 120, 120, 0.14);
+}
+
+.report-upload-alert {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(255, 120, 120, 0.42);
+  background:
+    linear-gradient(135deg, rgba(255, 120, 120, 0.16), rgba(255, 173, 96, 0.08)),
+    rgba(28, 10, 10, 0.92);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.18);
+}
+
+.report-upload-alert strong {
+  color: #ffd8d8;
+  font-size: 0.86rem;
+  letter-spacing: 0.02em;
+}
+
+.report-upload-alert span {
+  color: #ffe9e1;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .report-image-gallery {
   display: grid;
   gap: 0.7rem;

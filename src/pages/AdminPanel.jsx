@@ -32,6 +32,7 @@ import Modal from "../components/Modal";
 import SearchBar from "../components/ui/SearchBar";
 import { useAuth } from "../context/AuthContext";
 import {
+  deleteAdminClaim,
   deleteAdminUser,
   deleteAdminItem,
   deleteAdminFlag,
@@ -152,6 +153,7 @@ const AdminPanel = () => {
   });
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedFlag, setSelectedFlag] = useState(null);
+  const [selectedClaim, setSelectedClaim] = useState(null);
   const [selectedItemImage, setSelectedItemImage] = useState("");
   const [selectedFlagImage, setSelectedFlagImage] = useState("");
   const [reportSuccessModal, setReportSuccessModal] = useState(null);
@@ -565,6 +567,92 @@ const AdminPanel = () => {
       () => updateAdminClaimStatus(id, status),
       `Claim ${id} ${label.toLowerCase()}.`,
     );
+
+  const deleteClaimRow = (claim) =>
+    withMutationFeedback(
+      async () => {
+        await deleteAdminClaim(claim.id);
+        setPanelData((current) => ({
+          ...current,
+          claims: current.claims.filter((entry) => entry.id !== claim.id),
+        }));
+        setSelectedClaim((current) => (current?.id === claim.id ? null : current));
+      },
+      `Claim ${claim.id} deleted.`,
+    );
+
+  const confirmDeleteClaimRow = (claim) =>
+    openConfirmAction({
+      title: "Delete this claim?",
+      message: `Claim ${claim.id} will be removed from the admin claims table.`,
+      confirmLabel: "Delete Claim",
+      tone: "danger",
+      onConfirm: () => deleteClaimRow(claim),
+    });
+
+  const acceptClaim = (claim) =>
+    (async () => {
+      try {
+        await Promise.all([
+          updateAdminClaimStatus(claim.id, "approved"),
+          claim.itemId ? updateAdminItemStatus(claim.itemId, "resolved") : Promise.resolve(),
+        ]);
+        setPanelData((current) => ({
+          ...current,
+          claims: current.claims.filter((entry) => entry.id !== claim.id),
+          items: current.items.map((entry) =>
+            String(entry.id) === String(claim.itemId)
+              ? { ...entry, lifecycleStatus: "Resolved", rawStatus: "resolved" }
+              : entry,
+          ),
+        }));
+        setSelectedClaim(null);
+        showSnackbar(`Claim ${claim.id} accepted. Item marked as resolved.`);
+      } catch (error) {
+        showSnackbar(error?.message || "Failed to accept claim.");
+      }
+    })();
+
+  const rejectClaim = (claim) =>
+    (async () => {
+      try {
+        await Promise.all([
+          updateAdminClaimStatus(claim.id, "rejected"),
+          claim.itemId ? updateAdminItemStatus(claim.itemId, "open") : Promise.resolve(),
+        ]);
+        setPanelData((current) => ({
+          ...current,
+          claims: current.claims.filter((entry) => entry.id !== claim.id),
+          items: current.items.map((entry) =>
+            String(entry.id) === String(claim.itemId)
+              ? { ...entry, lifecycleStatus: "Available", rawStatus: "open" }
+              : entry,
+          ),
+        }));
+        setSelectedClaim(null);
+        showSnackbar(`Claim ${claim.id} rejected. Item reopened in Browse.`);
+      } catch (error) {
+        showSnackbar(error?.message || "Failed to reject claim.");
+      }
+    })();
+
+  const confirmAcceptClaim = (claim) =>
+    openConfirmAction({
+      title: "Accept this claim?",
+      message: `Claim will be approved and "${claim.item}" will be marked as resolved and hidden from Browse.`,
+      confirmLabel: "Accept Claim",
+      tone: "warning",
+      onConfirm: () => acceptClaim(claim),
+    });
+
+  const confirmRejectClaim = (claim) =>
+    openConfirmAction({
+      title: "Reject this claim?",
+      message: `Claim will be rejected and "${claim.item}" will be reopened in Browse for continued matching.`,
+      confirmLabel: "Reject Claim",
+      tone: "danger",
+      onConfirm: () => rejectClaim(claim),
+    });
 
   const changeFlagStatus = (id, status, label) =>
     withMutationFeedback(
@@ -1156,29 +1244,33 @@ const AdminPanel = () => {
                         <div className="admin-action-row">
                           <button
                             type="button"
-                            className="admin-action admin-action-approve"
-                            onClick={() =>
-                              changeClaimStatus(
-                                claim.id,
-                                "approved",
-                                "Approved",
-                              )
-                            }
+                            className="admin-action"
+                            onClick={() => setSelectedClaim(claim)}
                           >
-                            Approve
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-action admin-action-approve"
+                            onClick={() => confirmAcceptClaim(claim)}
+                          >
+                            Accept
                           </button>
                           <button
                             type="button"
                             className="admin-action admin-action-reject"
-                            onClick={() =>
-                              changeClaimStatus(
-                                claim.id,
-                                "rejected",
-                                "Rejected",
-                              )
-                            }
+                            onClick={() => confirmRejectClaim(claim)}
                           >
                             Reject
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-action admin-action-icon-delete"
+                            onClick={() => confirmDeleteClaimRow(claim)}
+                            aria-label={`Delete claim ${claim.id}`}
+                            title="Delete claim"
+                          >
+                            <FontAwesomeIcon icon={faTrashCan} />
                           </button>
                         </div>
                       </td>
@@ -1931,6 +2023,101 @@ const AdminPanel = () => {
                 disabled={isConfirmSubmitting}
               >
                 {isConfirmSubmitting ? "Working..." : confirmAction.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedClaim ? (
+        <div className="admin-modal-backdrop" role="presentation" onClick={() => setSelectedClaim(null)}>
+          <div
+            className="admin-modal admin-modal-item admin-modal-claim"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Claim details"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="admin-modal-header">
+              <div>
+                <p className="admin-modal-kicker">Ownership Claim</p>
+                <h3>{selectedClaim.fullName}</h3>
+                <p className="admin-report-subtitle">Claimant information and item details</p>
+              </div>
+              <div className="admin-item-badges">
+                <span className="admin-review admin-review-pending">
+                  {selectedClaim.status || "Pending"}
+                </span>
+              </div>
+            </div>
+
+            <section className="admin-report-section">
+              <p className="admin-item-section-title">Claimant Information</p>
+              <div className="admin-item-modal-grid">
+                <article className="admin-item-fact">
+                  <span>Full Name</span>
+                  <strong>{selectedClaim.fullName || "N/A"}</strong>
+                </article>
+                <article className="admin-item-fact">
+                  <span>Contact Method</span>
+                  <strong>{selectedClaim.contact || "N/A"}</strong>
+                </article>
+                <article className="admin-item-fact">
+                  <span>College Department</span>
+                  <strong>{selectedClaim.collegeDept || "N/A"}</strong>
+                </article>
+                <article className="admin-item-fact">
+                  <span>Program Year</span>
+                  <strong>{selectedClaim.programYear || "N/A"}</strong>
+                </article>
+              </div>
+            </section>
+
+            <section className="admin-report-section">
+              <p className="admin-item-section-title">Claimed Item</p>
+              <div className="admin-item-modal-grid">
+                <article className="admin-item-fact">
+                  <span>Item Name</span>
+                  <strong>{selectedClaim.item || "N/A"}</strong>
+                </article>
+                <article className="admin-item-fact">
+                  <span>Claim Route</span>
+                  <strong>{selectedClaim.routeTo || "admin-panel"}</strong>
+                </article>
+                <article className="admin-item-fact">
+                  <span>Claim ID</span>
+                  <strong>{selectedClaim.id}</strong>
+                </article>
+              </div>
+            </section>
+
+            <div className="admin-modal-actions">
+              <button
+                type="button"
+                className="admin-action"
+                onClick={() => setSelectedClaim(null)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="admin-action admin-action-reject"
+                onClick={() => {
+                  setSelectedClaim(null);
+                  confirmRejectClaim(selectedClaim);
+                }}
+              >
+                Reject
+              </button>
+              <button
+                type="button"
+                className="admin-action admin-action-approve"
+                onClick={() => {
+                  setSelectedClaim(null);
+                  confirmAcceptClaim(selectedClaim);
+                }}
+              >
+                Accept
               </button>
             </div>
           </div>

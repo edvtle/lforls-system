@@ -127,7 +127,6 @@ const ReportLostItem = () => {
   const [aiDetected, setAiDetected] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDraftDirty, setIsDraftDirty] = useState(false);
   const [saveDraftNotice, setSaveDraftNotice] = useState("");
   const [snackbar, setSnackbar] = useState({ open: false, message: "" });
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
@@ -187,10 +186,14 @@ const ReportLostItem = () => {
     const draft = getReportDraft({ reportType: "lost", userId: reportDraftUserId });
     setDraftCheckedUserId(reportDraftUserId);
 
-    if (draft) {
+    if (draft?.savedManually) {
       setDraftRestoreData(draft);
       setDraftRestoreOpen(true);
       return;
+    }
+
+    if (draft) {
+      deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
     }
 
     setDraftRestoreData(null);
@@ -243,6 +246,7 @@ const ReportLostItem = () => {
         imageDataUrl: draftImageDataUrls[0] || "",
         imageName: uploadedFiles[0]?.name || cropFileName,
         aiDetected,
+        savedManually: true,
         savedAt: new Date().toISOString(),
       },
     });
@@ -298,16 +302,6 @@ const ReportLostItem = () => {
       setDraftRestoreData(null);
     });
   }, [draftRestoreData, draftRestoreOpen]);
-
-  useEffect(() => {
-    if (!isDraftDirty || submitted || draftRestoreOpen || draftRestoreData) {
-      return;
-    }
-
-    if (draftCheckedUserId === reportDraftUserId) {
-      persistDraft();
-    }
-  }, [draftImageDataUrls, form, step, aiDetected, isDraftDirty, submitted, draftRestoreOpen, draftRestoreData, reportDraftUserId, draftCheckedUserId]);
 
   useEffect(() => {
     if (step !== 4 || !accountEmail || !isEmailContactMethod(form.contactMethod) || form.contactValue) {
@@ -381,7 +375,6 @@ const ReportLostItem = () => {
   }, [form.itemName, form.description]);
 
   const updateField = (field, value) => {
-    setIsDraftDirty(true);
     setForm((current) => ({ ...current, [field]: value }));
     setErrors((current) => {
       if (!current[field]) {
@@ -412,6 +405,10 @@ const ReportLostItem = () => {
       if (!form.description.trim()) nextErrors.description = "This field is required";
     }
 
+    if (targetStep === 3) {
+      if (!uploadedFiles.length) nextErrors.images = "Please upload at least one image before continuing.";
+    }
+
     if (targetStep === 4) {
       if (!form.contactValue.trim()) nextErrors.contactValue = "This field is required";
       if (
@@ -432,12 +429,12 @@ const ReportLostItem = () => {
       return;
     }
 
-    setIsDraftDirty(true);
+    setConfirmSubmitOpen(false);
     setStep((current) => Math.min(TOTAL_STEPS, current + 1));
   };
 
   const handleBack = () => {
-    setIsDraftDirty(true);
+    setConfirmSubmitOpen(false);
     setStep((current) => Math.max(1, current - 1));
   };
 
@@ -469,11 +466,19 @@ const ReportLostItem = () => {
     const nextFiles = [...uploadedFiles, ...acceptedFiles];
 
     setUploadedFiles(nextFiles);
+    setErrors((current) => {
+      if (!current.images) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next.images;
+      return next;
+    });
     const lastFile = acceptedFiles[acceptedFiles.length - 1];
     setCropFileName(lastFile?.name || "upload.jpg");
     setCropTargetIndex(Math.max(0, nextFiles.length - 1));
     setAiDetected(detectLikelyCategory(lastFile?.name || "", form.itemName));
-    setIsDraftDirty(true);
   };
 
   const applyCroppedImage = (croppedFile) => {
@@ -483,7 +488,6 @@ const ReportLostItem = () => {
     setCropFileName(croppedFile.name || "upload.jpg");
     setAiDetected(detectLikelyCategory(croppedFile.name, form.itemName));
     setCropModalOpen(false);
-    setIsDraftDirty(true);
   };
 
   const handleDrop = (event) => {
@@ -504,7 +508,6 @@ const ReportLostItem = () => {
       setCropTargetIndex(nextFiles.length - 1);
     }
 
-    setIsDraftDirty(true);
   };
 
   const openCropForImage = (index) => {
@@ -519,7 +522,12 @@ const ReportLostItem = () => {
       return;
     }
 
-    if (!validateStep(1) || !validateStep(2) || !validateStep(4)) {
+    const submitter = event.nativeEvent?.submitter;
+    if (!submitter || submitter.dataset.reportSubmit !== "true") {
+      return;
+    }
+
+    if (!validateStep(1) || !validateStep(2) || !validateStep(3) || !validateStep(4)) {
       return;
     }
 
@@ -527,7 +535,7 @@ const ReportLostItem = () => {
   };
 
   const handleConfirmSubmit = async () => {
-    if (!validateStep(1) || !validateStep(2) || !validateStep(4)) {
+    if (!validateStep(1) || !validateStep(2) || !validateStep(3) || !validateStep(4)) {
       setConfirmSubmitOpen(false);
       return;
     }
@@ -562,7 +570,6 @@ const ReportLostItem = () => {
       });
 
       deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
-      setIsDraftDirty(false);
       navigate("/browse", {
         replace: true,
         state: {
@@ -585,7 +592,6 @@ const ReportLostItem = () => {
       return;
     }
 
-    setIsDraftDirty(true);
     persistDraft();
     setSaveDraftNotice("Draft saved.");
   };
@@ -610,7 +616,6 @@ const ReportLostItem = () => {
             deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
             setStep(1);
             setSubmitted(false);
-            setIsDraftDirty(false);
           }}
         >
           <FontAwesomeIcon icon={faCheck} />
@@ -796,7 +801,7 @@ const ReportLostItem = () => {
         {step === 3 ? (
           <section className="report-step-card" aria-label="Upload image">
             <h3>Upload Image</h3>
-            <p>Upload a clear image to improve match accuracy.</p>
+            <p>Upload at least one clear image before submitting your lost-item report.</p>
 
             <input
               ref={fileInputRef}
@@ -810,7 +815,7 @@ const ReportLostItem = () => {
 
             <button
               type="button"
-              className={`report-upload-zone ${dragActive ? "report-upload-zone-active" : ""}`}
+              className={`report-upload-zone ${dragActive ? "report-upload-zone-active" : ""} ${errors.images ? "report-upload-zone-error" : ""}`}
               onClick={() => fileInputRef.current?.click()}
               onDragOver={(event) => {
                 event.preventDefault();
@@ -827,6 +832,12 @@ const ReportLostItem = () => {
             <p className="report-draft-inline-note report-upload-count" aria-live="polite">
               {uploadedFiles.length}/{MAX_UPLOAD_IMAGES} images selected
             </p>
+            {errors.images ? (
+              <div className="report-upload-alert" role="alert" aria-live="assertive">
+                <strong>Image required</strong>
+                <span>Upload at least one clear photo of the item to continue. This helps verify reports and improves matching accuracy.</span>
+              </div>
+            ) : null}
 
             {imagePreviews.length ? (
               <div className="report-image-gallery" role="list" aria-label="Uploaded images">
@@ -962,7 +973,7 @@ const ReportLostItem = () => {
                 Next <FontAwesomeIcon icon={faChevronRight} />
               </button>
             ) : (
-              <button type="submit" className="report-primary-button" disabled={isSubmitting}>
+              <button type="submit" data-report-submit="true" className="report-primary-button" disabled={isSubmitting}>
                 {isSubmitting ? <span className="report-submit-spinner" aria-hidden="true" /> : <FontAwesomeIcon icon={faPaperPlane} />}
                 {isSubmitting ? "Submitting..." : "Submit report"}
               </button>
@@ -994,7 +1005,6 @@ const ReportLostItem = () => {
           setDraftRestoreOpen(false);
           setDraftRestoreData(null);
           deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
-          setIsDraftDirty(false);
         }}
         ariaLabel="Restore report draft"
         overlayClassName="report-draft-backdrop"
@@ -1019,7 +1029,6 @@ const ReportLostItem = () => {
               setAiDetected("");
               setStep(1);
               deleteReportDraft({ reportType: "lost", userId: reportDraftUserId });
-              setIsDraftDirty(false);
             }}
           >
             Start fresh

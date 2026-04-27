@@ -42,6 +42,8 @@ const toCardItem = (item) => {
     location: item.location_text || "Unknown",
     date: item.date_lost_or_found || item.created_at?.slice(0, 10) || "",
     status: item.type === "found" ? "Found" : "Lost",
+    lifecycleStatus: item.status || "open",
+    rawStatus: item.status || "open",
     matchPercent: Math.max(0, Math.min(100, Number(item.match_score || 0))),
     image: primary,
     gallery,

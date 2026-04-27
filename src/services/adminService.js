@@ -140,6 +140,7 @@ const reconcileExpiredSuspensions = async (users = []) => {
 
 const mapClaim = (claim) => ({
   id: claim.id,
+  itemId: claim.item_id || claim.found_item_id || claim.listing_id || "",
   item: claim.items?.item_name || claim.item_name || "Unknown item",
   fullName: claim.full_name || claim.claimant_name || "Unknown claimant",
   contact: claim.contact || claim.contact_value || "N/A",
@@ -361,57 +362,17 @@ export const listAdminClaims = async () => {
 
   const primary = await supabase
     .from("claims")
-    .select(
-      "id, full_name, claimant_name, contact, contact_value, college_dept, program_year, route_to, status, item_name, items(item_name)",
-    )
+    .select("*")
     .order("created_at", { ascending: false })
     .limit(200);
 
   let data = primary.data;
   let error = primary.error;
 
-  // Some schemas do not expose claims->items relation; fallback to direct claim columns.
   if (error) {
-    const fallback = await supabase
-      .from("claims")
-      .select(
-        "id, full_name, claimant_name, contact, contact_value, college_dept, program_year, route_to, status, item_name",
-      )
-      .order("created_at", { ascending: false })
-      .limit(200);
-
-    if (!fallback.error) {
-      data = fallback.data;
-      error = null;
-    }
-  }
-
-  if (error) {
-    const fallbackNoOrder = await supabase
-      .from("claims")
-      .select(
-        "id, full_name, claimant_name, contact, contact_value, college_dept, program_year, route_to, status, item_name, items(item_name)",
-      )
-      .limit(200);
-
-    if (!fallbackNoOrder.error) {
-      data = fallbackNoOrder.data;
-      error = null;
-    } else {
-      const directNoOrder = await supabase
-        .from("claims")
-        .select(
-          "id, full_name, claimant_name, contact, contact_value, college_dept, program_year, route_to, status, item_name",
-        )
-        .limit(200);
-
-      if (!directNoOrder.error) {
-        data = directNoOrder.data;
-        error = null;
-      } else {
-        error = directNoOrder.error;
-      }
-    }
+    const fallback = await supabase.from("claims").select("*").limit(200);
+    data = fallback.data;
+    error = fallback.error;
   }
 
   if (error) {
@@ -422,6 +383,20 @@ export const listAdminClaims = async () => {
   }
 
   return (data || []).map(mapClaim);
+};
+
+export const deleteAdminClaim = async (claimId) => {
+  assertSupabase();
+
+  const { error: rpcError } = await supabase.rpc("admin_delete_claim", {
+    target_claim_id: claimId,
+  });
+  if (rpcError) {
+    const { error } = await supabase.from("claims").delete().eq("id", claimId);
+    if (error) throw error;
+  }
+
+  return { success: true };
 };
 
 export const listAdminFlags = async () => {

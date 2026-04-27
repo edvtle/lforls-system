@@ -365,8 +365,14 @@ const Messages = () => {
       return;
     }
 
-    createClaim({
+    if (!currentUserId) {
+      showSnackbar("You must be logged in to send claim details.");
+      return;
+    }
+
+    await createClaim({
       itemId: activeConversation.itemId || activeConversation.id,
+      claimantId: currentUserId,
       item: activeConversation.context,
       fullName: verification.fullName,
       contact: verification.contact,
@@ -376,11 +382,6 @@ const Messages = () => {
     });
 
     const payload = "Claim request submitted. Details provided for ownership verification.";
-
-    if (!currentUserId) {
-      showSnackbar("You must be logged in to send claim details.");
-      return;
-    }
 
     try {
       await sendMessage({
@@ -846,12 +847,12 @@ const Messages = () => {
           </label>
 
           <label className="details-form-field">
-            <span>Program Year</span>
+            <span>Program-Year/Section</span>
             <input
               type="text"
               value={verification.programYear}
               onChange={(event) => setVerification((current) => ({ ...current, programYear: event.target.value }))}
-              placeholder="e.g., BSIT - 3rd Year"
+              placeholder="e.g., BSIT - 1A"
               required
             />
           </label>
