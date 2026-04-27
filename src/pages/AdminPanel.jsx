@@ -173,6 +173,12 @@ const AdminPanel = () => {
   const [isConfirmSubmitting, setIsConfirmSubmitting] = useState(false);
   const [userStatusFilter, setUserStatusFilter] = useState("all");
   const [userDeptFilter, setUserDeptFilter] = useState("all");
+  const [selectedRows, setSelectedRows] = useState({
+    items: [],
+    users: [],
+    claims: [],
+    flags: [],
+  });
 
   useEffect(() => {
     if (!snackbar.open) {
@@ -193,6 +199,83 @@ const AdminPanel = () => {
 
   const showSnackbar = (message) => {
     setSnackbar({ open: true, message });
+  };
+
+  const toggleRowSelection = (tableKey, rowId) => {
+    const id = String(rowId);
+
+    setSelectedRows((current) => {
+      const source = current[tableKey] || [];
+      const exists = source.includes(id);
+
+      return {
+        ...current,
+        [tableKey]: exists
+          ? source.filter((entry) => entry !== id)
+          : [...source, id],
+      };
+    });
+  };
+
+  const toggleAllVisibleRows = (tableKey, rows) => {
+    const visibleIds = rows.map((row) => String(row.id));
+
+    setSelectedRows((current) => {
+      const source = current[tableKey] || [];
+      const allVisibleSelected =
+        visibleIds.length > 0 && visibleIds.every((id) => source.includes(id));
+
+      return {
+        ...current,
+        [tableKey]: allVisibleSelected
+          ? source.filter((id) => !visibleIds.includes(id))
+          : [...new Set([...source, ...visibleIds])],
+      };
+    });
+  };
+
+  const isAllVisibleSelected = (tableKey, rows) => {
+    const selected = selectedRows[tableKey] || [];
+    if (!rows.length) {
+      return false;
+    }
+
+    return rows.every((row) => selected.includes(String(row.id)));
+  };
+
+  const isRowSelected = (tableKey, rowId) =>
+    (selectedRows[tableKey] || []).includes(String(rowId));
+
+  const getVisibleSelectedCount = (tableKey, rows) => {
+    const selected = selectedRows[tableKey] || [];
+    return rows.filter((row) => selected.includes(String(row.id))).length;
+  };
+
+  const clearSelection = (tableKey) => {
+    setSelectedRows((current) => ({
+      ...current,
+      [tableKey]: [],
+    }));
+  };
+
+  const openBulkDeleteConfirm = (tableKey, label, rows) => {
+    const selectedCount = getVisibleSelectedCount(tableKey, rows);
+
+    if (!selectedCount) {
+      return;
+    }
+
+    openConfirmAction({
+      title: `Delete ${selectedCount} selected ${label.toLowerCase()}?`,
+      message: "This is a UI-only confirmation for selected rows.",
+      confirmLabel: "Delete Selected",
+      tone: "danger",
+      compact: true,
+      onConfirm: () => {
+        clearSelection(tableKey);
+        showSnackbar(`${selectedCount} ${label.toLowerCase()} selected. UI preview only.`);
+      },
+    });
   };
 
   const openReportSuccessModal = (title, message) => {
@@ -331,9 +414,10 @@ const AdminPanel = () => {
     message,
     confirmLabel = "Confirm",
     tone = "warning",
+    compact = false,
     onConfirm,
   }) => {
-    setConfirmAction({ title, message, confirmLabel, tone, onConfirm });
+    setConfirmAction({ title, message, confirmLabel, tone, compact, onConfirm });
   };
 
   const closeConfirmAction = () => {
@@ -979,12 +1063,43 @@ const AdminPanel = () => {
       <article className="admin-content-card">
         <div className="admin-content-head">
           <h3>Manage Items</h3>
-          <span>{filteredItems.length} items</span>
+          <div className="admin-head-actions">
+            <span>
+              {filteredItems.length} items · {getVisibleSelectedCount("items", filteredItems)} selected
+            </span>
+            {getVisibleSelectedCount("items", filteredItems) > 0 ? (
+              <div className="admin-bulk-actions">
+                <button
+                  type="button"
+                  className="admin-action admin-action-delete admin-action-bulk"
+                  onClick={() => openBulkDeleteConfirm("items", "items", filteredItems)}
+                >
+                  Delete Selected
+                </button>
+                <button
+                  type="button"
+                  className="admin-action admin-action-bulk-clear"
+                  onClick={() => clearSelection("items")}
+                >
+                  Clear Selection
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
         <div className="admin-table-wrap">
           <table className="admin-table">
             <thead>
               <tr>
+                <th className="admin-select-col">
+                  <input
+                    type="checkbox"
+                    className="admin-table-check"
+                    checked={isAllVisibleSelected("items", filteredItems)}
+                    onChange={() => toggleAllVisibleRows("items", filteredItems)}
+                    aria-label="Select all items"
+                  />
+                </th>
                 <th>Image</th>
                 <th>Item Name</th>
                 <th>Category</th>
@@ -997,6 +1112,15 @@ const AdminPanel = () => {
               {filteredItems.length
                 ? filteredItems.map((item) => (
                     <tr key={item.id}>
+                      <td className="admin-select-col">
+                        <input
+                          type="checkbox"
+                          className="admin-table-check"
+                          checked={isRowSelected("items", item.id)}
+                          onChange={() => toggleRowSelection("items", item.id)}
+                          aria-label={`Select item ${item.name}`}
+                        />
+                      </td>
                       <td>
                         <img
                           src={item.image}
@@ -1063,7 +1187,7 @@ const AdminPanel = () => {
                   ))
                 : renderEmptyRow(
                     "No database items found for this filter.",
-                    6,
+                    7,
                   )}
             </tbody>
           </table>
@@ -1084,42 +1208,92 @@ const AdminPanel = () => {
         <div className="admin-content-head">
           <div className="admin-head-title">
             <h3>User Management</h3>
-            <p className="admin-head-subtitle">{filteredUsers.length} users</p>
+            <p className="admin-head-subtitle">
+              {filteredUsers.length} users · {getVisibleSelectedCount("users", filteredUsers)} selected
+            </p>
           </div>
-          <div className="admin-filter-controls">
-            <label className="admin-filter-select-wrap">
-              <span>Status</span>
-              <select
-                value={userStatusFilter}
-                onChange={(event) => setUserStatusFilter(event.target.value)}
-                className="admin-filter-select"
+        </div>
+        <div className="admin-user-toolbar">
+          <div className="admin-user-toolbar-shell">
+            <div className="admin-filter-controls admin-user-filters">
+              <label className="admin-filter-select-wrap">
+                <span>Status</span>
+                <select
+                  value={userStatusFilter}
+                  onChange={(event) => setUserStatusFilter(event.target.value)}
+                  className="admin-filter-select"
+                >
+                  <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="banned">Banned</option>
+                </select>
+              </label>
+              <label className="admin-filter-select-wrap">
+                <span>Department</span>
+                <select
+                  value={userDeptFilter}
+                  onChange={(event) => setUserDeptFilter(event.target.value)}
+                  className="admin-filter-select"
+                >
+                  {userDepartments.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept === "all" ? "All" : dept}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="admin-promote-btn"
+                onClick={() =>
+                  openConfirmAction({
+                    title: "Promote year levels?",
+                    message: "Move qualified students to the next year level.",
+                    confirmLabel: "Promote",
+                    tone: "warning",
+                    compact: true,
+                    onConfirm: () =>
+                      showSnackbar("Year-level promotion confirmed. (UI preview only)"),
+                  })
+                }
               >
-                <option value="all">All</option>
-                <option value="active">Active</option>
-                <option value="suspended">Suspended</option>
-                <option value="banned">Banned</option>
-              </select>
-            </label>
-            <label className="admin-filter-select-wrap">
-              <span>Department</span>
-              <select
-                value={userDeptFilter}
-                onChange={(event) => setUserDeptFilter(event.target.value)}
-                className="admin-filter-select"
-              >
-                {userDepartments.map((dept) => (
-                  <option key={dept} value={dept}>
-                    {dept === "all" ? "All" : dept}
-                  </option>
-                ))}
-              </select>
-            </label>
+                Promote
+              </button>
+            </div>
+            {getVisibleSelectedCount("users", filteredUsers) > 0 ? (
+              <div className="admin-bulk-actions admin-user-bulk-actions">
+                <button
+                  type="button"
+                  className="admin-action admin-action-delete admin-action-bulk"
+                  onClick={() => openBulkDeleteConfirm("users", "users", filteredUsers)}
+                >
+                  Delete Selected
+                </button>
+                <button
+                  type="button"
+                  className="admin-action admin-action-bulk-clear"
+                  onClick={() => clearSelection("users")}
+                >
+                  Clear Selection
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="admin-table-wrap">
           <table className="admin-table">
             <thead>
               <tr>
+                <th className="admin-select-col">
+                  <input
+                    type="checkbox"
+                    className="admin-table-check"
+                    checked={isAllVisibleSelected("users", filteredUsers)}
+                    onChange={() => toggleAllVisibleRows("users", filteredUsers)}
+                    aria-label="Select all users"
+                  />
+                </th>
                 <th>User Name</th>
                 <th>Email</th>
                 <th>Department</th>
@@ -1133,6 +1307,15 @@ const AdminPanel = () => {
               {filteredUsers.length
                 ? filteredUsers.map((user) => (
                     <tr key={user.id}>
+                      <td className="admin-select-col">
+                        <input
+                          type="checkbox"
+                          className="admin-table-check"
+                          checked={isRowSelected("users", user.id)}
+                          onChange={() => toggleRowSelection("users", user.id)}
+                          aria-label={`Select user ${user.name}`}
+                        />
+                      </td>
                       <td>{user.name}</td>
                       <td>{user.email}</td>
                       <td>{user.department || "N/A"}</td>
@@ -1193,7 +1376,7 @@ const AdminPanel = () => {
                   ))
                 : renderEmptyRow(
                     "No database users found for this filter.",
-                    7,
+                    8,
                   )}
             </tbody>
           </table>
@@ -1213,12 +1396,43 @@ const AdminPanel = () => {
       <article className="admin-content-card">
         <div className="admin-content-head">
           <h3>Claims / Requests</h3>
-          <span>{filteredClaims.length} database claims</span>
+          <div className="admin-head-actions">
+            <span>
+              {filteredClaims.length} database claims · {getVisibleSelectedCount("claims", filteredClaims)} selected
+            </span>
+            {getVisibleSelectedCount("claims", filteredClaims) > 0 ? (
+              <div className="admin-bulk-actions">
+                <button
+                  type="button"
+                  className="admin-action admin-action-delete admin-action-bulk"
+                  onClick={() => openBulkDeleteConfirm("claims", "claims", filteredClaims)}
+                >
+                  Delete Selected
+                </button>
+                <button
+                  type="button"
+                  className="admin-action admin-action-bulk-clear"
+                  onClick={() => clearSelection("claims")}
+                >
+                  Clear Selection
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
         <div className="admin-table-wrap">
           <table className="admin-table">
             <thead>
               <tr>
+                <th className="admin-select-col">
+                  <input
+                    type="checkbox"
+                    className="admin-table-check"
+                    checked={isAllVisibleSelected("claims", filteredClaims)}
+                    onChange={() => toggleAllVisibleRows("claims", filteredClaims)}
+                    aria-label="Select all claims"
+                  />
+                </th>
                 <th>Claim ID</th>
                 <th>Item</th>
                 <th>Claiming User</th>
@@ -1233,6 +1447,15 @@ const AdminPanel = () => {
               {filteredClaims.length
                 ? filteredClaims.map((claim) => (
                     <tr key={claim.id}>
+                      <td className="admin-select-col">
+                        <input
+                          type="checkbox"
+                          className="admin-table-check"
+                          checked={isRowSelected("claims", claim.id)}
+                          onChange={() => toggleRowSelection("claims", claim.id)}
+                          aria-label={`Select claim ${claim.id}`}
+                        />
+                      </td>
                       <td>{claim.id}</td>
                       <td>{claim.item}</td>
                       <td>{claim.fullName}</td>
@@ -1278,7 +1501,7 @@ const AdminPanel = () => {
                   ))
                 : renderEmptyRow(
                     "No database-backed claims table entries were found.",
-                    8,
+                    9,
                   )}
             </tbody>
           </table>
@@ -1298,12 +1521,43 @@ const AdminPanel = () => {
       <article className="admin-content-card">
         <div className="admin-content-head">
           <h3>Reports / Flags</h3>
-          <span>{filteredFlags.length} database reports</span>
+          <div className="admin-head-actions">
+            <span>
+              {filteredFlags.length} database reports · {getVisibleSelectedCount("flags", filteredFlags)} selected
+            </span>
+            {getVisibleSelectedCount("flags", filteredFlags) > 0 ? (
+              <div className="admin-bulk-actions">
+                <button
+                  type="button"
+                  className="admin-action admin-action-delete admin-action-bulk"
+                  onClick={() => openBulkDeleteConfirm("flags", "reports", filteredFlags)}
+                >
+                  Delete Selected
+                </button>
+                <button
+                  type="button"
+                  className="admin-action admin-action-bulk-clear"
+                  onClick={() => clearSelection("flags")}
+                >
+                  Clear Selection
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
         <div className="admin-table-wrap">
           <table className="admin-table">
             <thead>
               <tr>
+                <th className="admin-select-col">
+                  <input
+                    type="checkbox"
+                    className="admin-table-check"
+                    checked={isAllVisibleSelected("flags", filteredFlags)}
+                    onChange={() => toggleAllVisibleRows("flags", filteredFlags)}
+                    aria-label="Select all reports"
+                  />
+                </th>
                 <th>Reason</th>
                 <th>Reported Student</th>
                 <th>Severity</th>
@@ -1315,6 +1569,15 @@ const AdminPanel = () => {
               {filteredFlags.length
                 ? filteredFlags.map((flag) => (
                     <tr key={flag.id}>
+                      <td className="admin-select-col">
+                        <input
+                          type="checkbox"
+                          className="admin-table-check"
+                          checked={isRowSelected("flags", flag.id)}
+                          onChange={() => toggleRowSelection("flags", flag.id)}
+                          aria-label={`Select report ${flag.id}`}
+                        />
+                      </td>
                       <td>{flag.reason}</td>
                       <td>{flag.reportedStudent}</td>
                       <td>{flag.severity}</td>
@@ -1374,7 +1637,7 @@ const AdminPanel = () => {
                   ))
                 : renderEmptyRow(
                     "No database-backed reports table entries were found.",
-                    5,
+                    6,
                   )}
             </tbody>
           </table>
@@ -1987,7 +2250,9 @@ const AdminPanel = () => {
       {confirmAction ? (
         <div className="admin-modal-backdrop" role="presentation">
           <div
-            className={`admin-modal admin-modal-confirm admin-modal-confirm-${confirmAction.tone}`}
+            className={`admin-modal admin-modal-confirm admin-modal-confirm-${confirmAction.tone} ${
+              confirmAction.compact ? "admin-modal-confirm-compact" : ""
+            }`}
             role="dialog"
             aria-modal="true"
             aria-label={confirmAction.title}
@@ -1997,13 +2262,17 @@ const AdminPanel = () => {
                 <FontAwesomeIcon icon={activeConfirmMeta.icon} />
               </span>
               <div className="admin-confirm-copy">
-                <p className="admin-modal-kicker">{activeConfirmMeta.kicker}</p>
+                {!confirmAction.compact ? (
+                  <p className="admin-modal-kicker">{activeConfirmMeta.kicker}</p>
+                ) : null}
                 <h3>{confirmAction.title}</h3>
                 <p className="admin-confirm-message">{confirmAction.message}</p>
               </div>
             </div>
 
-            <p className="admin-confirm-note">{activeConfirmMeta.note}</p>
+            {!confirmAction.compact ? (
+              <p className="admin-confirm-note">{activeConfirmMeta.note}</p>
+            ) : null}
 
             <div className="admin-modal-actions">
               <button
