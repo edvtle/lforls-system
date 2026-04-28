@@ -540,6 +540,22 @@
   color: #ffffff;
 }
 
+.admin-review-archived {
+  margin-left: 0.35rem;
+  background: rgba(59, 130, 246, 0.82);
+  color: #eff6ff;
+}
+
+.admin-archive-section {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(93, 214, 44, 0.12);
+}
+
+.admin-content-head-archive {
+  margin-top: 0.2rem;
+}
+
 .admin-action-row {
   display: flex;
   align-items: center;

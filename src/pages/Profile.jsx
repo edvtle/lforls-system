@@ -703,12 +703,12 @@ const Profile = () => {
                 onChange={(value) => setDraftProfile((current) => ({ ...current, collegeDept: value }))}
                 className="profile-settings-select"
                 options={[
-                  "College of Arts and Sciences",
-                  "College of Business Administration",
-                  "College of Nursing",
-                  "College of Engineering",
+                  "College of Arts & Sciences",
                   "College of Education",
+                  "College of Business & Accountancy",
                   "College of Computer Studies",
+                  "College of Engineering",
+                  "College of Nursing",
                   "College of International Hospitality Management",
                 ]}
               />

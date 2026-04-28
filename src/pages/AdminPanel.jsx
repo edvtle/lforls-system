@@ -37,9 +37,11 @@ import {
   deleteAdminItem,
   deleteAdminFlag,
   loadAdminPanelData,
+  promoteAdminUsers,
   removeFlaggedContent,
   sendUserWarning,
   toggleChatConversationSuspension,
+  undoPromoteAdminUsers,
   updateAdminClaimStatus,
   updateAdminFlagStatus,
   updateAdminItemStatus,
@@ -66,6 +68,7 @@ const emptyStats = {
 const emptyPanelState = {
   items: [],
   users: [],
+  archivedUsers: [],
   claims: [],
   flags: [],
   stats: emptyStats,
@@ -104,14 +107,33 @@ const iconForLog = {
 };
 
 const adminDepartmentOptions = [
-  "College of Arts and Sciences",
-  "College of Business Administration",
-  "College of Nursing",
-  "College of Engineering",
+  "Administrator",
+  "College of Arts & Sciences",
   "College of Education",
+  "College of Business & Accountancy",
   "College of Computer Studies",
+  "College of Engineering",
+  "College of Nursing",
   "College of International Hospitality Management",
 ];
+
+const normalizeAdminDepartment = (value = "") => {
+  const trimmed = String(value || "").trim();
+  const normalized = trimmed.toLowerCase();
+
+  if (normalized === "administrator" || normalized === "administration") {
+    return "Administrator";
+  }
+
+  return trimmed;
+};
+
+const studentDepartmentFilterValue = "students";
+
+const isStudentDepartment = (value = "") => {
+  const normalized = normalizeAdminDepartment(value).toLowerCase();
+  return Boolean(normalized) && normalized !== "administrator" && normalized !== "n/a";
+};
 
 const renderEmptyRow = (message, colSpan) => (
   <tr>
@@ -145,6 +167,8 @@ const AdminPanel = () => {
   const [loadError, setLoadError] = useState("");
   const [snackbar, setSnackbar] = useState({ open: false, message: "" });
   const [editingUser, setEditingUser] = useState(null);
+  const [showArchivedUsers, setShowArchivedUsers] = useState(false);
+  const [lastPromotionBatch, setLastPromotionBatch] = useState([]);
   const [editUserForm, setEditUserForm] = useState({
     name: "",
     email: "",
@@ -258,6 +282,52 @@ const AdminPanel = () => {
     }));
   };
 
+  const getVisibleSelectedRows = (tableKey, rows) => {
+    const selected = new Set((selectedRows[tableKey] || []).map((id) => String(id)));
+    return rows.filter((row) => selected.has(String(row.id)));
+  };
+
+  const deleteSelectedRows = async (tableKey, rows) => {
+    const selectedRowsForTable = getVisibleSelectedRows(tableKey, rows);
+    const labelByTable = {
+      items: "items",
+      users: "users",
+      claims: "claims",
+      flags: "reports",
+    };
+    const label = labelByTable[tableKey] || "rows";
+
+    if (!selectedRowsForTable.length) {
+      return;
+    }
+
+    try {
+      if (tableKey === "items") {
+        await Promise.all(selectedRowsForTable.map((item) => deleteAdminItem(item.id)));
+      } else if (tableKey === "users") {
+        await Promise.all(selectedRowsForTable.map((user) => deleteAdminUser(user.id)));
+      } else if (tableKey === "claims") {
+        await Promise.all(
+          selectedRowsForTable.map((claim) =>
+            deleteAdminClaim(claim.id, claim.duplicateIds),
+          ),
+        );
+      } else if (tableKey === "flags") {
+        await Promise.all(selectedRowsForTable.map((flag) => deleteAdminFlag(flag.id)));
+      } else {
+        throw new Error("Bulk delete is not configured for this table.");
+      }
+
+      clearSelection(tableKey);
+      await refreshPanel({ silent: true });
+      showSnackbar(
+        `${selectedRowsForTable.length} ${label} deleted.`,
+      );
+    } catch (error) {
+      showSnackbar(error?.message || "Bulk delete failed.");
+    }
+  };
+
   const openBulkDeleteConfirm = (tableKey, label, rows) => {
     const selectedCount = getVisibleSelectedCount(tableKey, rows);
 
@@ -267,14 +337,11 @@ const AdminPanel = () => {
 
     openConfirmAction({
       title: `Delete ${selectedCount} selected ${label.toLowerCase()}?`,
-      message: "This is a UI-only confirmation for selected rows.",
+      message: `The selected ${label.toLowerCase()} will be permanently removed.`,
       confirmLabel: "Delete Selected",
       tone: "danger",
       compact: true,
-      onConfirm: () => {
-        clearSelection(tableKey);
-        showSnackbar(`${selectedCount} ${label.toLowerCase()} selected. UI preview only.`);
-      },
+      onConfirm: () => deleteSelectedRows(tableKey, rows),
     });
   };
 
@@ -332,7 +399,16 @@ const AdminPanel = () => {
     setSelectedFlagImage(gallery[0] || selectedFlag.itemDetails.image || "");
   }, [selectedFlag]);
 
-  const { items, users, claims, flags, stats, dailyReports, activityLogs } =
+  const {
+    items,
+    users,
+    archivedUsers,
+    claims,
+    flags,
+    stats,
+    dailyReports,
+    activityLogs,
+  } =
     panelData;
 
   const normalizedQuery = query.trim().toLowerCase();
@@ -354,7 +430,10 @@ const AdminPanel = () => {
       const matchesStatus =
         userStatusFilter === "all" || user.rawStatus === userStatusFilter;
       const matchesDepartment =
-        userDeptFilter === "all" || user.department === userDeptFilter;
+        userDeptFilter === "all"
+        || (userDeptFilter === studentDepartmentFilterValue
+          ? isStudentDepartment(user.department)
+          : user.department === userDeptFilter);
 
       return matchesStatus && matchesDepartment;
     });
@@ -373,9 +452,41 @@ const AdminPanel = () => {
   const userDepartments = useMemo(() => {
     return [
       "all",
-      ...Array.from(new Set(users.map((user) => user.department).filter(Boolean))),
+      studentDepartmentFilterValue,
+      ...Array.from(
+        new Set([...users, ...archivedUsers].map((user) => user.department).filter(Boolean)),
+      ),
     ];
-  }, [users]);
+  }, [users, archivedUsers]);
+
+  const filteredArchivedUsers = useMemo(() => {
+    const source = archivedUsers.filter((user) =>
+      userDeptFilter === "all"
+      || (userDeptFilter === studentDepartmentFilterValue
+        ? isStudentDepartment(user.department)
+        : user.department === userDeptFilter),
+    );
+
+    if (!normalizedQuery) {
+      return source;
+    }
+
+    return source.filter((user) =>
+      `${user.name} ${user.email} ${user.department} ${user.yearSection} ${user.status}`
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [archivedUsers, normalizedQuery, userDeptFilter]);
+
+  const selectedUsersForPromotion = useMemo(() => {
+    const selectedIds = new Set((selectedRows.users || []).map((id) => String(id)));
+
+    if (!selectedIds.size) {
+      return [];
+    }
+
+    return users.filter((user) => selectedIds.has(String(user.id)));
+  }, [selectedRows.users, users]);
 
   const filteredClaims = useMemo(() => {
     if (!normalizedQuery) {
@@ -413,11 +524,24 @@ const AdminPanel = () => {
     title = "Confirm this action?",
     message,
     confirmLabel = "Confirm",
+    cancelLabel = "Cancel",
     tone = "warning",
     compact = false,
+    postActionLabel,
+    onPostAction,
     onConfirm,
   }) => {
-    setConfirmAction({ title, message, confirmLabel, tone, compact, onConfirm });
+    setConfirmAction({
+      title,
+      message,
+      confirmLabel,
+      cancelLabel,
+      tone,
+      compact,
+      postActionLabel,
+      onPostAction,
+      onConfirm,
+    });
   };
 
   const closeConfirmAction = () => {
@@ -435,7 +559,49 @@ const AdminPanel = () => {
 
     setIsConfirmSubmitting(true);
     try {
-      await confirmAction.onConfirm();
+      const result = await confirmAction.onConfirm();
+      if (result?.keepOpen) {
+        setConfirmAction((current) =>
+          current
+            ? {
+                ...current,
+                ...result,
+                tone: result.tone || current.tone,
+                compact:
+                  typeof result.compact === "boolean" ? result.compact : current.compact,
+              }
+            : current,
+        );
+        return;
+      }
+      setConfirmAction(null);
+    } finally {
+      setIsConfirmSubmitting(false);
+    }
+  };
+
+  const submitConfirmPostAction = async () => {
+    if (!confirmAction?.onPostAction) {
+      return;
+    }
+
+    setIsConfirmSubmitting(true);
+    try {
+      const result = await confirmAction.onPostAction();
+      if (result?.keepOpen) {
+        setConfirmAction((current) =>
+          current
+            ? {
+                ...current,
+                ...result,
+                tone: result.tone || current.tone,
+                compact:
+                  typeof result.compact === "boolean" ? result.compact : current.compact,
+              }
+            : current,
+        );
+        return;
+      }
       setConfirmAction(null);
     } finally {
       setIsConfirmSubmitting(false);
@@ -571,12 +737,28 @@ const AdminPanel = () => {
       onConfirm: () => removeUser(user.id),
     });
 
+  const restoreArchivedUser = (user) =>
+    withMutationFeedback(
+      () => updateAdminUserStatus(user.id, "active"),
+      `${user.name} was restored with year/section ${user.yearSection || "N/A"}.`,
+    );
+
+  const confirmRestoreArchivedUser = (user) =>
+    openConfirmAction({
+      title: "Restore this user?",
+      message: `${user.name} will be restored as an active user with year/section ${user.yearSection || "N/A"}.`,
+      confirmLabel: "Restore User",
+      tone: "warning",
+      onConfirm: () => restoreArchivedUser(user),
+    });
+
   const openEditUserModal = (user) => {
     setEditingUser(user);
     setEditUserForm({
       name: user.name,
       email: user.email,
-      department: user.department === "N/A" ? "" : user.department,
+      department:
+        user.department === "N/A" ? "" : normalizeAdminDepartment(user.department),
       yearSection: user.yearSection === "N/A" ? "" : user.yearSection,
     });
   };
@@ -592,7 +774,8 @@ const AdminPanel = () => {
     }
 
     const isAdministrator =
-      editUserForm.department.trim().toLowerCase() === "administrator";
+      normalizeAdminDepartment(editUserForm.department).toLowerCase() ===
+      "administrator";
 
     if (
       !editUserForm.name.trim() ||
@@ -620,7 +803,7 @@ const AdminPanel = () => {
       "User profile updated.",
     );
 
-    const updatedDepartment = editUserForm.department.trim();
+    const updatedDepartment = normalizeAdminDepartment(editUserForm.department);
     const updatedYearSection = isAdministrator
       ? ""
       : editUserForm.yearSection.trim().toUpperCase();
@@ -646,6 +829,75 @@ const AdminPanel = () => {
     closeEditUserModal();
   };
 
+  const handlePromoteUsers = async () => {
+    try {
+      const usersToPromote = selectedUsersForPromotion.length
+        ? selectedUsersForPromotion
+        : users;
+      const result = await promoteAdminUsers(usersToPromote);
+      setLastPromotionBatch(result.changes || []);
+      if (result.archivedCount > 0) {
+        setShowArchivedUsers(true);
+      }
+      await refreshPanel({ silent: true });
+      showSnackbar(
+        `${result.promotedCount} promoted, ${result.archivedCount} archived.`,
+      );
+      return {
+        keepOpen: true,
+        title: "Promotion complete",
+        message: `${result.promotedCount} user${result.promotedCount === 1 ? "" : "s"} moved to the next year level and ${result.archivedCount} graduate${result.archivedCount === 1 ? "" : "s"} moved to the archive.`,
+        confirmLabel: "Promote Again",
+        cancelLabel: "Close",
+        postActionLabel: "Undo",
+        onPostAction: handleUndoPromoteUsers,
+      };
+    } catch (error) {
+      showSnackbar(error?.message || "Year-level promotion failed.");
+      return {
+        keepOpen: true,
+      };
+    }
+  };
+
+  const handleUndoPromoteUsers = async () => {
+    try {
+      const result = await undoPromoteAdminUsers(lastPromotionBatch);
+      setLastPromotionBatch([]);
+      await refreshPanel({ silent: true });
+      showSnackbar(`${result.count} user${result.count === 1 ? "" : "s"} restored.`);
+      return {
+        keepOpen: true,
+        title: "Promotion undone",
+        message: "The most recent promotion batch was restored to its previous year level and status.",
+        confirmLabel: "Promote",
+        cancelLabel: "Close",
+        postActionLabel: "",
+        onPostAction: null,
+      };
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to undo the last promotion.");
+      return {
+        keepOpen: true,
+      };
+    }
+  };
+
+  const openPromoteConfirm = () =>
+    openConfirmAction({
+      title: "Promote year levels?",
+      message: selectedUsersForPromotion.length
+        ? `Increase the year level of the ${selectedUsersForPromotion.length} selected student${selectedUsersForPromotion.length === 1 ? "" : "s"} by 1. Selected students who reach graduation will be moved to Archive instead.`
+        : "Increase the year level of all non-administrator users by 1. Students who reach graduation will be moved to Archive instead.",
+      confirmLabel: "Promote",
+      cancelLabel: "Cancel",
+      tone: "warning",
+      compact: true,
+      postActionLabel: lastPromotionBatch.length ? "Undo" : "",
+      onPostAction: lastPromotionBatch.length ? handleUndoPromoteUsers : null,
+      onConfirm: handlePromoteUsers,
+    });
+
   const changeClaimStatus = (id, status, label) =>
     withMutationFeedback(
       () => updateAdminClaimStatus(id, status),
@@ -655,7 +907,7 @@ const AdminPanel = () => {
   const deleteClaimRow = (claim) =>
     withMutationFeedback(
       async () => {
-        await deleteAdminClaim(claim.id);
+        await deleteAdminClaim(claim.id, claim.duplicateIds);
         setPanelData((current) => ({
           ...current,
           claims: current.claims.filter((entry) => entry.id !== claim.id),
@@ -1238,7 +1490,11 @@ const AdminPanel = () => {
                 >
                   {userDepartments.map((dept) => (
                     <option key={dept} value={dept}>
-                      {dept === "all" ? "All" : dept}
+                      {dept === "all"
+                        ? "All"
+                        : dept === studentDepartmentFilterValue
+                          ? "Students"
+                          : dept}
                     </option>
                   ))}
                 </select>
@@ -1246,19 +1502,18 @@ const AdminPanel = () => {
               <button
                 type="button"
                 className="admin-promote-btn"
-                onClick={() =>
-                  openConfirmAction({
-                    title: "Promote year levels?",
-                    message: "Move qualified students to the next year level.",
-                    confirmLabel: "Promote",
-                    tone: "warning",
-                    compact: true,
-                    onConfirm: () =>
-                      showSnackbar("Year-level promotion confirmed. (UI preview only)"),
-                  })
-                }
+                onClick={openPromoteConfirm}
               >
                 Promote
+              </button>
+              <button
+                type="button"
+                className="admin-promote-btn"
+                onClick={() => setShowArchivedUsers((current) => !current)}
+              >
+                {showArchivedUsers
+                  ? `Archive (${filteredArchivedUsers.length})`
+                  : `Archive (${archivedUsers.length})`}
               </button>
             </div>
             {getVisibleSelectedCount("users", filteredUsers) > 0 ? (
@@ -1381,6 +1636,71 @@ const AdminPanel = () => {
             </tbody>
           </table>
         </div>
+        {showArchivedUsers ? (
+          <div className="admin-archive-section">
+            <div className="admin-content-head admin-content-head-archive">
+              <div className="admin-head-title">
+                <h3>Archive</h3>
+                <p className="admin-head-subtitle">
+                  {filteredArchivedUsers.length} archived users
+                </p>
+              </div>
+            </div>
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>User Name</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>YR/SECTION</th>
+                    <th>Reports</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredArchivedUsers.length
+                    ? filteredArchivedUsers.map((user) => (
+                        <tr key={user.id}>
+                          <td>{user.name}</td>
+                          <td>{user.email}</td>
+                          <td>{user.department || "N/A"}</td>
+                          <td>{user.yearSection || "N/A"}</td>
+                          <td>{user.reportsCount}</td>
+                          <td>
+                            <span className="admin-review admin-review-archived">
+                              {user.status}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="admin-action-row">
+                              <button
+                                type="button"
+                                className="admin-action admin-action-approve"
+                                onClick={() => confirmRestoreArchivedUser(user)}
+                              >
+                                Restore
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-action admin-action-icon-delete"
+                                onClick={() => confirmDeleteUser(user)}
+                                aria-label={`Delete archived user ${user.name}`}
+                                title="Delete archived user"
+                              >
+                                <FontAwesomeIcon icon={faTrashCan} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    : renderEmptyRow("No archived users found.", 7)}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
       </article>
     </AnimatedContent>
   );
@@ -2281,8 +2601,18 @@ const AdminPanel = () => {
                 onClick={closeConfirmAction}
                 disabled={isConfirmSubmitting}
               >
-                Cancel
+                {confirmAction.cancelLabel || "Cancel"}
               </button>
+              {confirmAction.postActionLabel ? (
+                <button
+                  type="button"
+                  className="admin-action admin-action-approve"
+                  onClick={submitConfirmPostAction}
+                  disabled={isConfirmSubmitting}
+                >
+                  {isConfirmSubmitting ? "Working..." : confirmAction.postActionLabel}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`admin-action ${

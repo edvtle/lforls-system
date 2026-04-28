@@ -93,7 +93,10 @@ const tryInsertPayload = async (basePayload) => {
       .maybeSingle();
 
     if (!error) {
-      return data || null;
+      return {
+        inserted: true,
+        data: data || null,
+      };
     }
 
     if (!isSchemaMismatchError(error)) {
@@ -108,7 +111,10 @@ const tryInsertPayload = async (basePayload) => {
     payload = nextPayload;
   }
 
-  return null;
+  return {
+    inserted: false,
+    data: null,
+  };
 };
 
 const insertClaimToSupabase = async (claim) => {
@@ -199,9 +205,9 @@ const insertClaimToSupabase = async (claim) => {
   ];
 
   for (const payload of attempts) {
-    const inserted = await tryInsertPayload(payload);
-    if (inserted) {
-      return inserted;
+    const result = await tryInsertPayload(payload);
+    if (result.inserted) {
+      return result.data || { id: "", status: "pending" };
     }
   }
 

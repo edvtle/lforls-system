@@ -7,6 +7,7 @@ const resetApiBaseUrl =
 
 const ITEM_FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1200&q=80";
+const ADMIN_DEPARTMENT_LABEL = "Administrator";
 
 const assertSupabase = () => {
   if (!isSupabaseConfigured || !supabase) {
@@ -29,6 +30,34 @@ const formatLabel = (value = "") =>
     .replace(/_/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
+const normalizeDepartmentValue = (value = "") => {
+  const trimmed = String(value || "").trim();
+  const normalized = trimmed.toLowerCase();
+
+  if (normalized === "administrator" || normalized === "administration") {
+    return ADMIN_DEPARTMENT_LABEL;
+  }
+
+  return trimmed;
+};
+
+const isAdministratorDepartment = (value = "") =>
+  normalizeDepartmentValue(value) === ADMIN_DEPARTMENT_LABEL;
+
+const isNursingDepartment = (value = "") =>
+  normalizeDepartmentValue(value).toLowerCase() === "college of nursing";
+
+const promoteYearSectionValue = (value = "") => {
+  const normalized = String(value || "").trim().toUpperCase();
+  const match = normalized.match(/^(\d+)([A-Z])$/);
+
+  if (!match) {
+    return "";
+  }
+
+  return `${Number(match[1]) + 1}${match[2]}`;
+};
+
 const parseTimestamp = (value) => {
   if (!value) return Number.NaN;
   const milliseconds = Date.parse(String(value));
@@ -42,6 +71,49 @@ const formatDate = (value) => {
     return String(value).slice(0, 10) || "N/A";
   }
   return date.toISOString().slice(0, 10);
+};
+
+const normalizeClaimField = (value = "") =>
+  String(value || "").trim().toLowerCase();
+
+const buildClaimDuplicateKey = (claim) => {
+  const createdAt = parseTimestamp(claim.created_at);
+  const createdAtBucket = Number.isFinite(createdAt)
+    ? new Date(createdAt).toISOString().slice(0, 16)
+    : "";
+
+  return [
+    normalizeClaimField(claim.item_id || claim.found_item_id || claim.listing_id || ""),
+    normalizeClaimField(claim.item_name || claim.items?.item_name || ""),
+    normalizeClaimField(claim.full_name || claim.claimant_name || ""),
+    normalizeClaimField(claim.contact || claim.contact_value || ""),
+    normalizeClaimField(claim.college_dept || ""),
+    normalizeClaimField(claim.program_year || ""),
+    normalizeClaimField(claim.route_to || ""),
+    normalizeClaimField(claim.status || ""),
+    createdAtBucket,
+  ].join("|");
+};
+
+const dedupeClaims = (claims = []) => {
+  const groupedClaims = new Map();
+
+  claims.forEach((claim) => {
+    const key = buildClaimDuplicateKey(claim);
+    const existing = groupedClaims.get(key);
+
+    if (existing) {
+      existing.duplicateIds.push(claim.id);
+      return;
+    }
+
+    groupedClaims.set(key, {
+      ...claim,
+      duplicateIds: [claim.id],
+    });
+  });
+
+  return Array.from(groupedClaims.values());
 };
 
 const parseConversationId = (target = "") => {
@@ -91,10 +163,13 @@ const mapUser = (profile) => ({
   id: profile.id,
   name: profile.full_name || "Unnamed user",
   email: profile.email || "No email",
-  department: profile.college_dept || "N/A",
+  department: normalizeDepartmentValue(profile.college_dept) || "N/A",
   yearSection: profile.year_section || "N/A",
   reportsCount: Number(profile.reports_count ?? profile.items?.[0]?.count ?? 0),
-  status: formatLabel(profile.status || "active"),
+  status:
+    String(profile.status || "active").toLowerCase() === "archived"
+      ? "Graduated"
+      : formatLabel(profile.status || "active"),
   rawStatus: profile.status || "active",
   suspendedUntil: profile.suspended_until || "",
 });
@@ -149,6 +224,7 @@ const mapClaim = (claim) => ({
   routeTo: claim.route_to || "admin-panel",
   status: formatLabel(claim.status || "pending"),
   rawStatus: claim.status || "pending",
+  duplicateIds: Array.isArray(claim.duplicateIds) ? claim.duplicateIds : [claim.id],
 });
 
 const mapFlag = (flag, reporterMap = new Map()) => {
@@ -382,18 +458,24 @@ export const listAdminClaims = async () => {
     throw error;
   }
 
-  return (data || []).map(mapClaim);
+  return dedupeClaims(data || []).map(mapClaim);
 };
 
-export const deleteAdminClaim = async (claimId) => {
+export const deleteAdminClaim = async (claimId, duplicateIds = []) => {
   assertSupabase();
 
-  const { error: rpcError } = await supabase.rpc("admin_delete_claim", {
-    target_claim_id: claimId,
-  });
-  if (rpcError) {
-    const { error } = await supabase.from("claims").delete().eq("id", claimId);
-    if (error) throw error;
+  const targetIds = [
+    ...new Set([claimId, ...duplicateIds].filter(Boolean).map((id) => String(id))),
+  ];
+
+  for (const targetId of targetIds) {
+    const { error: rpcError } = await supabase.rpc("admin_delete_claim", {
+      target_claim_id: targetId,
+    });
+    if (rpcError) {
+      const { error } = await supabase.from("claims").delete().eq("id", targetId);
+      if (error) throw error;
+    }
   }
 
   return { success: true };
@@ -531,12 +613,19 @@ export const toggleChatConversationSuspension = async ({
 export const loadAdminPanelData = async () => {
   assertSupabase();
 
-  const [items, users, claims, flags] = await Promise.all([
+  const [items, allUsers, claims, flags] = await Promise.all([
     listAdminItems(),
     listAdminUsers(),
     listAdminClaims(),
     listAdminFlags(),
   ]);
+
+  const users = allUsers.filter(
+    (user) => String(user.rawStatus || "").toLowerCase() !== "archived",
+  );
+  const archivedUsers = allUsers.filter(
+    (user) => String(user.rawStatus || "").toLowerCase() === "archived",
+  );
 
   const stats = {
     totalLostItems: items.filter((item) => item.typeLabel === "Lost").length,
@@ -548,6 +637,7 @@ export const loadAdminPanelData = async () => {
   return {
     items,
     users,
+    archivedUsers,
     claims,
     flags,
     stats,
@@ -620,7 +710,7 @@ export const updateAdminUserProfile = async ({
     id: userId,
     full_name: fullName?.trim() || "",
     email: email?.trim() || "",
-    college_dept: department?.trim() || "",
+    college_dept: normalizeDepartmentValue(department),
     year_section: yearSection?.trim() || "",
   };
 
@@ -628,6 +718,96 @@ export const updateAdminUserProfile = async ({
     .from("profiles")
     .upsert(payload, { onConflict: "id" });
   if (error) throw error;
+};
+
+export const promoteAdminUsers = async (users = []) => {
+  assertSupabase();
+
+  const promotableUsers = users
+    .map((user) => {
+      const department = normalizeDepartmentValue(user?.department);
+      const currentYearSection = String(user?.yearSection || "").trim().toUpperCase();
+      const nextYearSection = promoteYearSectionValue(currentYearSection);
+      const currentYearMatch = currentYearSection.match(/^(\d+)([A-Z])$/);
+      const currentYear = currentYearMatch ? Number(currentYearMatch[1]) : Number.NaN;
+      const graduationYear = isNursingDepartment(department) ? 5 : 4;
+      const shouldArchive = Number.isFinite(currentYear) && currentYear >= graduationYear;
+
+      if (
+        !user?.id ||
+        isAdministratorDepartment(department) ||
+        (!nextYearSection && !shouldArchive)
+      ) {
+        return null;
+      }
+
+      return {
+        id: user.id,
+        previousStatus: String(user.rawStatus || "active").toLowerCase(),
+        previousYearSection: currentYearSection,
+        nextStatus: shouldArchive
+          ? "archived"
+          : String(user.rawStatus || "active").toLowerCase(),
+        nextYearSection: shouldArchive ? currentYearSection : nextYearSection,
+        archived: shouldArchive,
+      };
+    })
+    .filter(Boolean);
+
+  if (!promotableUsers.length) {
+    throw new Error(
+      "No non-administrator users with a valid year/section were available to promote.",
+    );
+  }
+
+  await Promise.all(
+    promotableUsers.map(async (user) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          year_section: user.nextYearSection,
+          status: user.nextStatus,
+        })
+        .eq("id", user.id);
+
+      if (error) {
+        throw error;
+      }
+    }),
+  );
+
+  return {
+    count: promotableUsers.length,
+    promotedCount: promotableUsers.filter((user) => !user.archived).length,
+    archivedCount: promotableUsers.filter((user) => user.archived).length,
+    changes: promotableUsers,
+  };
+};
+
+export const undoPromoteAdminUsers = async (changes = []) => {
+  assertSupabase();
+
+  if (!Array.isArray(changes) || !changes.length) {
+    throw new Error("No promotion batch is available to undo.");
+  }
+
+  await Promise.all(
+    changes.map(async (change) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          year_section: change.previousYearSection || "",
+          status: change.previousStatus || "active",
+        })
+        .eq("id", change.id);
+
+      if (error) {
+        throw error;
+      }
+    }),
+  );
+
+  return { count: changes.length };
 };
 
 export const updateAdminClaimStatus = async (claimId, status) => {
