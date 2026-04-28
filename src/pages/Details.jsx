@@ -52,12 +52,23 @@ const normalizeReporterField = (value, fallback = "Not provided") => {
   return String(value);
 };
 
+const collegeDepartmentOptions = [
+  "Administrator",
+  "College of Arts & Sciences",
+  "College of Education",
+  "College of Business & Accountancy",
+  "College of Computer Studies",
+  "College of Engineering",
+  "College of Nursing",
+  "College of International Hospitality Management",
+];
+
 const getModalConfig = (type) => {
   if (type === "claim") {
     return {
       title: "Verify Ownership",
       helper: "Enter the claimant's student details for secure ownership review.",
-      submitLabel: "submit owner details",
+      submitLabel: "Submit owner details",
     };
   }
 
@@ -971,10 +982,11 @@ const Details = () => {
                 <h3 className="page-title">{activeModal?.title}</h3>
                 <p className="details-flow-note">{activeModal?.helper}</p>
               </div>
-
-              <button type="button" className="details-close-button" onClick={closeModal} aria-label="Close dialog">
-                <Icon type="close" />
-              </button>
+              {!submissionStatus ? (
+                <button type="button" className="details-close-button" onClick={closeModal} aria-label="Close dialog">
+                  <Icon type="close" />
+                </button>
+              ) : null}
             </div>
 
             {submissionStatus ? (
@@ -1026,13 +1038,18 @@ const Details = () => {
 
                     <label className="details-form-field">
                       <span>College Dept</span>
-                      <input
-                        type="text"
+                      <select
                         value={formState.collegeDept}
                         onChange={(event) => setFormState((current) => ({ ...current, collegeDept: event.target.value }))}
-                        placeholder="e.g., College of Computer Studies"
                         required
-                      />
+                      >
+                        <option value="">-- Select a college/department --</option>
+                        {collegeDepartmentOptions.map((dept) => (
+                          <option key={dept} value={dept}>
+                            {dept}
+                          </option>
+                        ))}
+                      </select>
                     </label>
 
                     <label className="details-form-field">

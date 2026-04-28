@@ -478,6 +478,19 @@
   cursor: pointer;
 }
 
+.admin-table tbody tr .admin-table-check {
+  display: none;
+}
+
+.admin-table tbody tr.admin-row-selected .admin-table-check,
+.admin-table tbody tr.admin-archive-row-selected .admin-table-check {
+  display: inline-flex;
+}
+
+.admin-table tbody tr.admin-row-selected {
+  background-color: rgba(93, 214, 44, 0.08);
+}
+
 .admin-table-check:focus-visible {
   outline: 2px solid rgba(143, 231, 97, 0.72);
   outline-offset: 2px;
@@ -938,6 +951,218 @@
   background:
     radial-gradient(circle at top right, rgba(251, 191, 36, 0.12), transparent 30%),
     rgba(8, 14, 9, 0.97);
+}
+
+.admin-modal-archive {
+  width: min(76rem, 100%);
+  max-height: min(88vh, 54rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  border-color: rgba(93, 214, 44, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(93, 214, 44, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(9, 15, 10, 0.99), rgba(8, 14, 9, 0.98));
+  overflow: hidden;
+}
+
+.admin-modal-archive .admin-modal-header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.6rem 0.8rem;
+}
+
+.admin-modal-archive .admin-modal-header > div {
+  min-width: 0;
+}
+
+.admin-archive-modal-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.admin-modal-close-btn {
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid rgba(93, 214, 44, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #edf8e8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease;
+}
+
+.admin-modal-close-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(143, 231, 97, 0.65);
+  background: rgba(93, 214, 44, 0.08);
+}
+
+.admin-archive-modal-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  padding: 0.8rem 0.85rem;
+  border: 1px solid rgba(93, 214, 44, 0.16);
+  border-radius: 0.92rem;
+  background:
+    linear-gradient(180deg, rgba(93, 214, 44, 0.06), rgba(255, 255, 255, 0.02)),
+    rgba(255, 255, 255, 0.02);
+  flex: 0 0 auto;
+}
+
+.admin-archive-search-row {
+  margin-top: -0.1rem;
+}
+
+.admin-archive-search-shell {
+  width: min(20rem, 100%);
+  padding: 0.12rem 0.62rem;
+  border-radius: 0.78rem;
+  background: rgba(255, 255, 255, 0.03);
+  flex: 0 1 20rem;
+}
+
+.admin-archive-search-input {
+  min-height: 2rem;
+  font-size: 0.82rem;
+}
+
+.admin-archive-search-input::placeholder {
+  color: #8fa78a;
+}
+
+.admin-archive-modal-note {
+  margin: 0;
+  flex: 1 1 24rem;
+  color: #b9cfb0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.admin-archive-modal-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.admin-archive-modal-table-wrap {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  border: 1px solid rgba(93, 214, 44, 0.12);
+  border-radius: 0.88rem;
+  background: rgba(4, 8, 5, 0.32);
+  padding: 0.2rem;
+}
+
+.admin-modal-archive .admin-table {
+  min-width: 940px;
+}
+
+.admin-modal-archive .admin-table th,
+.admin-modal-archive .admin-table td {
+  background-clip: padding-box;
+}
+
+/* Archive Modal Row Styling */
+.admin-archive-row {
+  transition: background-color 240ms ease, border-color 240ms ease;
+  border-bottom: 1px solid rgba(93, 214, 44, 0.08);
+  cursor: pointer;
+}
+
+.admin-archive-row:hover {
+  background-color: rgba(93, 214, 44, 0.08);
+}
+
+.admin-archive-row-selected {
+  background-color: rgba(93, 214, 44, 0.12);
+  border-color: rgba(93, 214, 44, 0.24);
+}
+
+/* Conditional Checkbox Visibility */
+.admin-archive-checkbox-cell {
+  position: relative;
+}
+
+.admin-archive-row-checkbox {
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: visibility 200ms ease, opacity 200ms ease, transform 200ms ease, accent-color 200ms ease, background-color 200ms ease;
+  pointer-events: none;
+  accent-color: #5dd62c;
+}
+
+.admin-archive-row-selected .admin-archive-row-checkbox {
+  visibility: visible;
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.admin-archive-row-checkbox:checked {
+  accent-color: #68cd45;
+  filter: drop-shadow(0 0 3px rgba(104, 205, 69, 0.4));
+}
+
+/* Header checkbox always visible */
+.admin-modal-archive .admin-table thead .admin-table-check {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+/* Enhanced Row Actions */
+.admin-archive-row .admin-action {
+  opacity: 0;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.admin-archive-row:hover .admin-action,
+.admin-archive-row-selected .admin-action {
+  opacity: 1;
+}
+
+/* Professional styling enhancements */
+.admin-modal-archive {
+  box-shadow: 
+    0 20px 60px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(143, 231, 97, 0.1);
+}
+
+.admin-archive-modal-toolbar {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.admin-archive-search-shell {
+  transition: all 200ms ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.admin-archive-search-shell:hover,
+.admin-archive-search-shell:focus-within {
+  background: rgba(93, 214, 44, 0.08);
+  border-color: rgba(93, 214, 44, 0.24);
+  box-shadow: 0 4px 12px rgba(93, 214, 44, 0.15);
+}
+
+.admin-archive-modal-table-wrap {
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: box-shadow 200ms ease;
 }
 
 .admin-modal-suspend .admin-modal-header {

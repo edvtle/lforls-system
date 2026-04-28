@@ -168,6 +168,7 @@ const AdminPanel = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: "" });
   const [editingUser, setEditingUser] = useState(null);
   const [showArchivedUsers, setShowArchivedUsers] = useState(false);
+  const [archiveQuery, setArchiveQuery] = useState("");
   const [lastPromotionBatch, setLastPromotionBatch] = useState([]);
   const [editUserForm, setEditUserForm] = useState({
     name: "",
@@ -200,6 +201,7 @@ const AdminPanel = () => {
   const [selectedRows, setSelectedRows] = useState({
     items: [],
     users: [],
+    archivedUsers: [],
     claims: [],
     flags: [],
   });
@@ -270,6 +272,17 @@ const AdminPanel = () => {
   const isRowSelected = (tableKey, rowId) =>
     (selectedRows[tableKey] || []).includes(String(rowId));
 
+  const isSelectionTrigger = (target) =>
+    Boolean(target?.closest?.("button, input, a, select, textarea, label"));
+
+  const handleRowToggle = (tableKey, rowId) => (event) => {
+    if (isSelectionTrigger(event.target)) {
+      return;
+    }
+
+    toggleRowSelection(tableKey, rowId);
+  };
+
   const getVisibleSelectedCount = (tableKey, rows) => {
     const selected = selectedRows[tableKey] || [];
     return rows.filter((row) => selected.includes(String(row.id))).length;
@@ -292,6 +305,7 @@ const AdminPanel = () => {
     const labelByTable = {
       items: "items",
       users: "users",
+      archivedUsers: "archived users",
       claims: "claims",
       flags: "reports",
     };
@@ -305,6 +319,8 @@ const AdminPanel = () => {
       if (tableKey === "items") {
         await Promise.all(selectedRowsForTable.map((item) => deleteAdminItem(item.id)));
       } else if (tableKey === "users") {
+        await Promise.all(selectedRowsForTable.map((user) => deleteAdminUser(user.id)));
+      } else if (tableKey === "archivedUsers") {
         await Promise.all(selectedRowsForTable.map((user) => deleteAdminUser(user.id)));
       } else if (tableKey === "claims") {
         await Promise.all(
@@ -1363,7 +1379,11 @@ const AdminPanel = () => {
             <tbody>
               {filteredItems.length
                 ? filteredItems.map((item) => (
-                    <tr key={item.id}>
+                    <tr
+                      key={item.id}
+                      className={isRowSelected("items", item.id) ? "admin-row-selected" : ""}
+                      onClick={handleRowToggle("items", item.id)}
+                    >
                       <td className="admin-select-col">
                         <input
                           type="checkbox"
@@ -1561,7 +1581,11 @@ const AdminPanel = () => {
             <tbody>
               {filteredUsers.length
                 ? filteredUsers.map((user) => (
-                    <tr key={user.id}>
+                    <tr
+                      key={user.id}
+                      className={isRowSelected("users", user.id) ? "admin-row-selected" : ""}
+                      onClick={handleRowToggle("users", user.id)}
+                    >
                       <td className="admin-select-col">
                         <input
                           type="checkbox"
@@ -1636,20 +1660,70 @@ const AdminPanel = () => {
             </tbody>
           </table>
         </div>
-        {showArchivedUsers ? (
-          <div className="admin-archive-section">
-            <div className="admin-content-head admin-content-head-archive">
-              <div className="admin-head-title">
-                <h3>Archive</h3>
-                <p className="admin-head-subtitle">
-                  {filteredArchivedUsers.length} archived users
-                </p>
+        <Modal
+          isOpen={Boolean(showArchivedUsers)}
+          onClose={() => {
+            setShowArchivedUsers(false);
+            setArchiveQuery("");
+            clearSelection("archivedUsers");
+          }}
+          ariaLabel="Archived users"
+          overlayClassName="admin-modal-backdrop"
+          panelClassName="admin-modal admin-modal-archive"
+        >
+          <div className="admin-modal-header">
+            <div>
+              <p className="admin-modal-kicker">Archive</p>
+              <h3>Archived Users</h3>
+              <p className="admin-head-subtitle">{filteredArchivedUsers.length} archived users</p>
+            </div>
+            <button
+              type="button"
+              className="admin-modal-close-btn"
+              onClick={() => {
+                setShowArchivedUsers(false);
+                setArchiveQuery("");
+                clearSelection("archivedUsers");
+              }}
+              aria-label="Close archive modal"
+            >
+              <FontAwesomeIcon icon={faXmark} />
+            </button>
+          </div>
+
+
+
+          <AnimatedContent distance={18} duration={0.5} ease="power2.out" delay={0.05}>
+            <div className="admin-archive-search-row">
+              <div className="admin-archive-search-shell">
+                <SearchBar
+                  value={archiveQuery}
+                  onChange={setArchiveQuery}
+                  placeholder="Search archived users..."
+                  ariaLabel="Search archived users"
+                  className="admin-modal-search"
+                  shellClassName="admin-search-shell"
+                  iconClassName="admin-search-icon"
+                  inputClassName="admin-search-input"
+                />
               </div>
             </div>
-            <div className="admin-table-wrap">
+          </AnimatedContent>
+
+          <AnimatedContent distance={18} duration={0.5} ease="power2.out" delay={0.04}>
+            <div className="admin-archive-modal-table-wrap">
               <table className="admin-table">
                 <thead>
                   <tr>
+                    <th className="admin-select-col">
+                      <input
+                        type="checkbox"
+                        className="admin-table-check"
+                        checked={isAllVisibleSelected("archivedUsers", filteredArchivedUsers)}
+                        onChange={() => toggleAllVisibleRows("archivedUsers", filteredArchivedUsers)}
+                        aria-label="Select all archived users"
+                      />
+                    </th>
                     <th>User Name</th>
                     <th>Email</th>
                     <th>Department</th>
@@ -1662,7 +1736,20 @@ const AdminPanel = () => {
                 <tbody>
                   {filteredArchivedUsers.length
                     ? filteredArchivedUsers.map((user) => (
-                        <tr key={user.id}>
+                        <tr
+                          key={user.id}
+                          className={`admin-archive-row ${isRowSelected("archivedUsers", user.id) ? "admin-archive-row-selected admin-row-selected" : ""}`}
+                          onClick={handleRowToggle("archivedUsers", user.id)}
+                        >
+                          <td className="admin-select-col admin-archive-checkbox-cell">
+                            <input
+                              type="checkbox"
+                              className="admin-table-check admin-archive-row-checkbox"
+                              checked={isRowSelected("archivedUsers", user.id)}
+                              onChange={() => toggleRowSelection("archivedUsers", user.id)}
+                              aria-label={`Select archived user ${user.name}`}
+                            />
+                          </td>
                           <td>{user.name}</td>
                           <td>{user.email}</td>
                           <td>{user.department || "N/A"}</td>
@@ -1695,12 +1782,12 @@ const AdminPanel = () => {
                           </td>
                         </tr>
                       ))
-                    : renderEmptyRow("No archived users found.", 7)}
+                    : renderEmptyRow("No archived users found.", 8)}
                 </tbody>
               </table>
             </div>
-          </div>
-        ) : null}
+          </AnimatedContent>
+        </Modal>
       </article>
     </AnimatedContent>
   );
@@ -1766,7 +1853,11 @@ const AdminPanel = () => {
             <tbody>
               {filteredClaims.length
                 ? filteredClaims.map((claim) => (
-                    <tr key={claim.id}>
+                    <tr
+                      key={claim.id}
+                      className={isRowSelected("claims", claim.id) ? "admin-row-selected" : ""}
+                      onClick={handleRowToggle("claims", claim.id)}
+                    >
                       <td className="admin-select-col">
                         <input
                           type="checkbox"
@@ -1888,7 +1979,11 @@ const AdminPanel = () => {
             <tbody>
               {filteredFlags.length
                 ? filteredFlags.map((flag) => (
-                    <tr key={flag.id}>
+                    <tr
+                      key={flag.id}
+                      className={isRowSelected("flags", flag.id) ? "admin-row-selected" : ""}
+                      onClick={handleRowToggle("flags", flag.id)}
+                    >
                       <td className="admin-select-col">
                         <input
                           type="checkbox"
