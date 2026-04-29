@@ -991,14 +991,26 @@ const Details = () => {
 
             {submissionStatus ? (
               <div className="details-form-success details-form-success-claim">
-                <Icon type="check" />
-                <div className="details-form-success-copy">
-                  <strong>Ownership details submitted</strong>
+                <div className="details-form-success-hero">
+                  <span className="details-form-success-icon" aria-hidden="true">
+                    <Icon type="check" />
+                  </span>
+                  <div className="details-form-success-copy">
+                    <span className="details-form-success-kicker">Submission received</span>
+                    <strong>Ownership details submitted</strong>
+                    <p>
+                      Your claimant information is now queued for admin review.
+                    </p>
+                  </div>
+                </div>
+                <div className="details-form-success-body">
                   <p>{submissionStatus}</p>
                 </div>
-                <button type="button" className="details-flow-submit" onClick={closeModal}>
-                  Close
-                </button>
+                <div className="details-form-success-actions">
+                  <button type="button" className="details-flow-submit" onClick={closeModal}>
+                    Close
+                  </button>
+                </div>
               </div>
             ) : (
               <form

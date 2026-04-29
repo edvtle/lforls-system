@@ -170,6 +170,9 @@ const AdminPanel = () => {
   const [showArchivedUsers, setShowArchivedUsers] = useState(false);
   const [archiveQuery, setArchiveQuery] = useState("");
   const [lastPromotionBatch, setLastPromotionBatch] = useState([]);
+  const [promotionScope, setPromotionScope] = useState({ mode: "all", userIds: [] });
+  const [isEditUserSaving, setIsEditUserSaving] = useState(false);
+  const [editUserSaveNotice, setEditUserSaveNotice] = useState("");
   const [editUserForm, setEditUserForm] = useState({
     name: "",
     email: "",
@@ -428,6 +431,7 @@ const AdminPanel = () => {
     panelData;
 
   const normalizedQuery = query.trim().toLowerCase();
+  const normalizedArchiveQuery = archiveQuery.trim().toLowerCase();
 
   const filteredItems = useMemo(() => {
     if (!normalizedQuery) {
@@ -483,16 +487,16 @@ const AdminPanel = () => {
         : user.department === userDeptFilter),
     );
 
-    if (!normalizedQuery) {
+    if (!normalizedArchiveQuery) {
       return source;
     }
 
     return source.filter((user) =>
       `${user.name} ${user.email} ${user.department} ${user.yearSection} ${user.status}`
         .toLowerCase()
-        .includes(normalizedQuery),
+        .includes(normalizedArchiveQuery),
     );
-  }, [archivedUsers, normalizedQuery, userDeptFilter]);
+  }, [archivedUsers, normalizedArchiveQuery, userDeptFilter]);
 
   const selectedUsersForPromotion = useMemo(() => {
     const selectedIds = new Set((selectedRows.users || []).map((id) => String(id)));
@@ -503,6 +507,15 @@ const AdminPanel = () => {
 
     return users.filter((user) => selectedIds.has(String(user.id)));
   }, [selectedRows.users, users]);
+
+  const getPromotionTargets = () => {
+    if (promotionScope.mode === "selected") {
+      const scopedIds = new Set((promotionScope.userIds || []).map((id) => String(id)));
+      return users.filter((user) => scopedIds.has(String(user.id)));
+    }
+
+    return users;
+  };
 
   const filteredClaims = useMemo(() => {
     if (!normalizedQuery) {
@@ -770,6 +783,7 @@ const AdminPanel = () => {
 
   const openEditUserModal = (user) => {
     setEditingUser(user);
+    setEditUserSaveNotice("");
     setEditUserForm({
       name: user.name,
       email: user.email,
@@ -779,13 +793,22 @@ const AdminPanel = () => {
     });
   };
 
-  const closeEditUserModal = () => {
+  const resetEditUserModalState = () => {
     setEditingUser(null);
+    setEditUserSaveNotice("");
     setEditUserForm({ name: "", email: "", department: "", yearSection: "" });
   };
 
+  const closeEditUserModal = () => {
+    if (isEditUserSaving) {
+      return;
+    }
+
+    resetEditUserModalState();
+  };
+
   const saveUserProfileChanges = async () => {
-    if (!editingUser) {
+    if (!editingUser || isEditUserSaving) {
       return;
     }
 
@@ -807,49 +830,56 @@ const AdminPanel = () => {
       return;
     }
 
-    await withMutationFeedback(
-      () =>
-        updateAdminUserProfile({
-          userId: editingUser.id,
-          fullName: editUserForm.name,
-          email: editUserForm.email,
-          department: editUserForm.department,
-          yearSection: isAdministrator ? "" : editUserForm.yearSection,
-        }),
-      "User profile updated.",
-    );
+    setIsEditUserSaving(true);
+    setEditUserSaveNotice("");
 
-    const updatedDepartment = normalizeAdminDepartment(editUserForm.department);
-    const updatedYearSection = isAdministrator
-      ? ""
-      : editUserForm.yearSection.trim().toUpperCase();
-    const updatedStatus = editingUser.rawStatus || "active";
+    try {
+      await updateAdminUserProfile({
+        userId: editingUser.id,
+        fullName: editUserForm.name,
+        email: editUserForm.email,
+        department: editUserForm.department,
+        yearSection: isAdministrator ? "" : editUserForm.yearSection,
+      });
 
-    setPanelData((current) => ({
-      ...current,
-      users: current.users.map((user) =>
-        user.id === editingUser.id
-          ? {
-              ...user,
-              name: editUserForm.name.trim(),
-              email: editUserForm.email.trim(),
-              department: updatedDepartment || "N/A",
-              yearSection: updatedYearSection || "N/A",
-              rawStatus: updatedStatus,
-              status: updatedStatus.charAt(0).toUpperCase() + updatedStatus.slice(1),
-            }
-          : user,
-      ),
-    }));
+      const updatedDepartment = normalizeAdminDepartment(editUserForm.department);
+      const updatedYearSection = isAdministrator
+        ? ""
+        : editUserForm.yearSection.trim().toUpperCase();
+      const updatedStatus = editingUser.rawStatus || "active";
 
-    closeEditUserModal();
+      setPanelData((current) => ({
+        ...current,
+        users: current.users.map((user) =>
+          user.id === editingUser.id
+            ? {
+                ...user,
+                name: editUserForm.name.trim(),
+                email: editUserForm.email.trim(),
+                department: updatedDepartment || "N/A",
+                yearSection: updatedYearSection || "N/A",
+                rawStatus: updatedStatus,
+                status: updatedStatus.charAt(0).toUpperCase() + updatedStatus.slice(1),
+              }
+            : user,
+        ),
+      }));
+
+      setEditUserSaveNotice("Changes saved successfully.");
+      showSnackbar("User profile updated.");
+      await refreshPanel({ silent: true });
+      await new Promise((resolve) => window.setTimeout(resolve, 900));
+      resetEditUserModalState();
+    } catch (error) {
+      showSnackbar(error?.message || "Database update failed.");
+    } finally {
+      setIsEditUserSaving(false);
+    }
   };
 
   const handlePromoteUsers = async () => {
     try {
-      const usersToPromote = selectedUsersForPromotion.length
-        ? selectedUsersForPromotion
-        : users;
+      const usersToPromote = getPromotionTargets();
       const result = await promoteAdminUsers(usersToPromote);
       setLastPromotionBatch(result.changes || []);
       if (result.archivedCount > 0) {
@@ -900,19 +930,27 @@ const AdminPanel = () => {
   };
 
   const openPromoteConfirm = () =>
-    openConfirmAction({
-      title: "Promote year levels?",
-      message: selectedUsersForPromotion.length
-        ? `Increase the year level of the ${selectedUsersForPromotion.length} selected student${selectedUsersForPromotion.length === 1 ? "" : "s"} by 1. Selected students who reach graduation will be moved to Archive instead.`
-        : "Increase the year level of all non-administrator users by 1. Students who reach graduation will be moved to Archive instead.",
-      confirmLabel: "Promote",
-      cancelLabel: "Cancel",
-      tone: "warning",
-      compact: true,
-      postActionLabel: lastPromotionBatch.length ? "Undo" : "",
-      onPostAction: lastPromotionBatch.length ? handleUndoPromoteUsers : null,
-      onConfirm: handlePromoteUsers,
-    });
+    (() => {
+      const hasSelection = selectedUsersForPromotion.length > 0;
+      setPromotionScope({
+        mode: hasSelection ? "selected" : "all",
+        userIds: hasSelection ? selectedUsersForPromotion.map((user) => String(user.id)) : [],
+      });
+
+      openConfirmAction({
+        title: "Promote year levels?",
+        message: hasSelection
+          ? `Increase the year level of the ${selectedUsersForPromotion.length} selected student${selectedUsersForPromotion.length === 1 ? "" : "s"} by 1. Selected students who reach graduation will be moved to Archive instead.`
+          : "Increase the year level of all non-administrator users by 1. Students who reach graduation will be moved to Archive instead.",
+        confirmLabel: "Promote",
+        cancelLabel: "Cancel",
+        tone: "warning",
+        compact: true,
+        postActionLabel: lastPromotionBatch.length ? "Undo" : "",
+        onPostAction: lastPromotionBatch.length ? handleUndoPromoteUsers : null,
+        onConfirm: handlePromoteUsers,
+      });
+    })();
 
   const changeClaimStatus = (id, status, label) =>
     withMutationFeedback(
@@ -2308,16 +2346,32 @@ const AdminPanel = () => {
                 disabled={editUserForm.department === "Administrator"}
               />
             </label>
+            {editUserSaveNotice ? (
+              <p className="admin-modal-inline-success" role="status" aria-live="polite">
+                {editUserSaveNotice}
+              </p>
+            ) : null}
             <div className="admin-modal-actions">
-              <button type="button" className="admin-action" onClick={closeEditUserModal}>
+              <button
+                type="button"
+                className="admin-action"
+                onClick={closeEditUserModal}
+                disabled={isEditUserSaving}
+              >
                 Cancel
               </button>
               <button
                 type="button"
-                className="admin-action admin-action-approve"
+                className={`admin-action admin-action-approve ${isEditUserSaving ? "admin-action-loading" : ""}`}
                 onClick={saveUserProfileChanges}
+                disabled={isEditUserSaving}
               >
-                Save
+                {isEditUserSaving ? (
+                  <>
+                    <span className="admin-action-spinner" aria-hidden="true" />
+                    Saving...
+                  </>
+                ) : editUserSaveNotice ? "Saved" : "Save"}
               </button>
             </div>
           </div>

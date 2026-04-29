@@ -607,6 +607,27 @@
   cursor: pointer;
 }
 
+.admin-action:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.admin-action-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.admin-action-spinner {
+  width: 0.88rem;
+  height: 0.88rem;
+  border-radius: 999px;
+  border: 2px solid rgba(223, 243, 215, 0.24);
+  border-top-color: #effae9;
+  animation: admin-spin 0.75s linear infinite;
+}
+
 .admin-action-approve {
   border-color: rgba(34, 197, 94, 0.5);
   background: rgba(34, 197, 94, 0.18);
@@ -1479,6 +1500,27 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.45rem;
+}
+
+.admin-modal-inline-success {
+  margin: -0.1rem 0 0;
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  border-radius: 0.7rem;
+  background: rgba(34, 197, 94, 0.12);
+  color: #dff3d7;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+@keyframes admin-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .admin-action-link {
