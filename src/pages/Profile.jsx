@@ -26,6 +26,7 @@ import { updateProfileById } from "../services/authService";
 import { deleteItemReport, listUserItemReports, updateItemReport } from "../services/reportingService";
 import { isSupabaseConfigured } from "../services/supabaseClient";
 import { deleteUserReportById, getUserReports, reportsUpdatedEventName, updateUserReportById } from "../utils/reportStore";
+import { removeClaimsByItemId } from "../utils/claimStore";
 import "../styles/Profile.css";
 
 const reportFilters = ["All", "Lost", "Found", "Claimed", "Content removed"];
@@ -462,6 +463,7 @@ const Profile = () => {
 
   const saveReportChanges = async (entry) => {
     setIsReportSaving(true);
+    const originalEntry = reports.find((item) => item.id === entry.id) || null;
 
     try {
       if (entry.source === "supabase" && isSupabaseConfigured && session?.user?.id) {
@@ -489,6 +491,10 @@ const Profile = () => {
         });
 
         setReports((current) => current.map((item) => (item.id === entry.id ? updated : item)));
+
+        if (originalEntry?.reportStatus === "Claimed" && entry.reportStatus === "Found") {
+          await removeClaimsByItemId(entry.itemId || entry.id);
+        }
       } else {
         let nextEntry = entry;
 
@@ -508,6 +514,10 @@ const Profile = () => {
         const { replacementImageFile, replacementImagePreview, replacementImageIndex, ...storedEntry } = nextEntry;
         updateUserReportById(entry.id, storedEntry);
         setReports((current) => current.map((item) => (item.id === entry.id ? { ...item, ...storedEntry } : item)));
+
+        if (originalEntry?.reportStatus === "Claimed" && entry.reportStatus === "Found") {
+          await removeClaimsByItemId(entry.itemId || entry.id);
+        }
       }
 
       setEditingReportId("");

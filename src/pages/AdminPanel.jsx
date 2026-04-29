@@ -48,6 +48,7 @@ import {
   updateAdminUserProfile,
   updateAdminUserStatus,
 } from "../services/adminService";
+import { claimsUpdatedEventName } from "../utils/claimStore";
 import "../styles/AdminPanel.css";
 
 const menuItems = [
@@ -394,6 +395,15 @@ const AdminPanel = () => {
 
   useEffect(() => {
     refreshPanel();
+  }, []);
+
+  useEffect(() => {
+    const handleClaimsUpdated = () => {
+      refreshPanel({ silent: true });
+    };
+
+    window.addEventListener(claimsUpdatedEventName, handleClaimsUpdated);
+    return () => window.removeEventListener(claimsUpdatedEventName, handleClaimsUpdated);
   }, []);
 
   useEffect(() => {
@@ -2590,28 +2600,6 @@ const AdminPanel = () => {
         </div>
       ) : null}
 
-      {previewImage ? (
-        <div className="admin-modal-backdrop" role="presentation" onClick={() => setPreviewImage(null)}>
-          <div
-            className="admin-image-viewer"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Image preview"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="admin-image-viewer-close"
-              onClick={() => setPreviewImage(null)}
-              aria-label="Close image preview"
-            >
-              Close
-            </button>
-            <img src={previewImage.src} alt={previewImage.alt} className="admin-image-viewer-image" />
-          </div>
-        </div>
-      ) : null}
-
       {warnUserFlag ? (
         <div className="admin-modal-backdrop" role="presentation">
           <div className="admin-modal admin-modal-warning" role="dialog" aria-modal="true" aria-label="Send user warning">
@@ -2839,6 +2827,37 @@ const AdminPanel = () => {
               </div>
             </section>
 
+            <section className="admin-report-section">
+              <p className="admin-item-section-title">Owner ID Picture</p>
+              {selectedClaim.ownerIdImageUrl ? (
+                <div className="admin-modal-media-shell">
+                  <div className="admin-modal-image-wrap">
+                    <img
+                      src={selectedClaim.ownerIdImageUrl}
+                      alt={`${selectedClaim.fullName} owner ID`}
+                      className="admin-modal-image"
+                    />
+                    <button
+                      type="button"
+                      className="admin-modal-image-expand"
+                      title="Expand image"
+                      aria-label="Expand owner ID image in modal"
+                      onClick={() =>
+                        openImagePreview(
+                          selectedClaim.ownerIdImageUrl,
+                          `${selectedClaim.fullName} owner ID`,
+                        )
+                      }
+                    >
+                      <FontAwesomeIcon icon={faMagnifyingGlassPlus} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="admin-report-empty">No owner ID picture was attached to this claim.</p>
+              )}
+            </section>
+
             <div className="admin-modal-actions">
               <button
                 type="button"
@@ -2868,6 +2887,28 @@ const AdminPanel = () => {
                 Accept
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {previewImage ? (
+        <div className="admin-modal-backdrop" role="presentation" onClick={() => setPreviewImage(null)}>
+          <div
+            className="admin-image-viewer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Image preview"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="admin-image-viewer-close"
+              onClick={() => setPreviewImage(null)}
+              aria-label="Close image preview"
+            >
+              Close
+            </button>
+            <img src={previewImage.src} alt={previewImage.alt} className="admin-image-viewer-image" />
           </div>
         </div>
       ) : null}

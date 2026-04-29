@@ -29,6 +29,7 @@ import { createNotification } from "../utils/notificationStore";
 import { useAuth } from "../context/AuthContext";
 import { createOrGetConversation, sendMessage } from "../utils/messagingStore";
 import { isItemSaved, toggleSavedItem } from "../utils/savedItemStore";
+import { itemsUpdatedEventName } from "../utils/itemStore";
 
 const getStatusTone = (status) => String(status || "").toLowerCase();
 
@@ -51,6 +52,14 @@ const normalizeReporterField = (value, fallback = "Not provided") => {
 
   return String(value);
 };
+
+const fileToDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Unable to read the selected ID image."));
+    reader.readAsDataURL(file);
+  });
 
 const collegeDepartmentOptions = [
   "Administrator",
@@ -222,6 +231,8 @@ const Details = () => {
     contact: "",
     collegeDept: "",
     programYear: "",
+    ownerIdImageUrl: "",
+    ownerIdImageName: "",
     details: "",
     reportReason: "",
     reportSeverity: "medium",
@@ -229,6 +240,7 @@ const Details = () => {
     reportOtherReason: "",
   });
   const claimFormRef = useRef(null);
+  const ownerIdInputRef = useRef(null);
 
   const showSnackbar = (message) => {
     setSnackbar({ visible: true, message });
@@ -323,6 +335,47 @@ const Details = () => {
     setConfirmClaimSubmitOpen(false);
   };
 
+  const handleOwnerIdImageChange = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      setFormState((current) => ({
+        ...current,
+        ownerIdImageUrl: "",
+        ownerIdImageName: "",
+      }));
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setFormState((current) => ({
+        ...current,
+        ownerIdImageUrl: dataUrl,
+        ownerIdImageName: file.name || "owner-id.jpg",
+      }));
+    } catch (error) {
+      showSnackbar(error?.message || "Unable to read the selected ID image.");
+      setFormState((current) => ({
+        ...current,
+        ownerIdImageUrl: "",
+        ownerIdImageName: "",
+      }));
+    }
+  };
+
+  const clearOwnerIdImage = () => {
+    if (ownerIdInputRef.current) {
+      ownerIdInputRef.current.value = "";
+    }
+
+    setFormState((current) => ({
+      ...current,
+      ownerIdImageUrl: "",
+      ownerIdImageName: "",
+    }));
+  };
+
   const submitClaimVerification = async () => {
     if (!item) {
       return;
@@ -337,6 +390,7 @@ const Details = () => {
         contact: formState.contact,
         collegeDept: formState.collegeDept,
         programYear: formState.programYear,
+        ownerIdImageUrl: formState.ownerIdImageUrl,
         routeTo:
           item.status === "Found" && isReportedByCurrentUser
             ? "admin-panel"
@@ -350,8 +404,22 @@ const Details = () => {
           payload: { status: "claimed", reportStatus: "Claimed" },
         });
 
-        updateUserReportByItemId(item.id, { reportStatus: "Claimed" });
+        updateUserReportByItemId(item.id, {
+          reportStatus: "Claimed",
+          rawStatus: "claimed",
+          reportType: "found",
+        });
+        setItem((current) =>
+          current
+            ? {
+                ...current,
+                rawStatus: "claimed",
+                lifecycleStatus: "claimed",
+              }
+            : current,
+        );
         setClaimed(true);
+        window.dispatchEvent(new Event(itemsUpdatedEventName));
       }
 
       createNotification({
@@ -385,6 +453,11 @@ const Details = () => {
 
     if (!claimFormRef.current.checkValidity()) {
       claimFormRef.current.reportValidity();
+      return;
+    }
+
+    if (!formState.ownerIdImageUrl) {
+      showSnackbar("Attach a clear owner ID picture before submitting.");
       return;
     }
 
@@ -1074,6 +1147,38 @@ const Details = () => {
                         required
                       />
                     </label>
+
+                    <label className="details-form-field">
+                      <span>Attach Owner ID Picture</span>
+                      <input
+                        ref={ownerIdInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleOwnerIdImageChange}
+                        required={!formState.ownerIdImageUrl}
+                      />
+                      <small>
+                        Upload a clear photo of the owner&apos;s ID. This is required for ownership verification.
+                      </small>
+                    </label>
+
+                    {formState.ownerIdImageUrl ? (
+                      <div className="details-form-field">
+                        <span>Attached ID Preview</span>
+                        <img
+                          src={formState.ownerIdImageUrl}
+                          alt="Owner ID preview"
+                          className="details-modal-upload-preview"
+                        />
+                        <div className="details-flow-actions">
+                          <span className="details-flow-note">{formState.ownerIdImageName || "Attached image"}</span>
+                          <button type="button" className="details-ghost-button" onClick={clearOwnerIdImage}>
+                            Remove image
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </>
                 ) : activeModal?.type === "report" ? (
                   <>

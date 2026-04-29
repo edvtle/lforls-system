@@ -113,7 +113,51 @@ const dedupeClaims = (claims = []) => {
     });
   });
 
-  return Array.from(groupedClaims.values());
+  const exactDedupedClaims = Array.from(groupedClaims.values());
+  const itemGroupedClaims = new Map();
+
+  exactDedupedClaims.forEach((claim) => {
+    const itemKey = normalizeClaimField(
+      claim.item_id || claim.found_item_id || claim.listing_id || "",
+    );
+
+    if (!itemKey) {
+      itemGroupedClaims.set(`claim:${claim.id}`, claim);
+      return;
+    }
+
+    const existing = itemGroupedClaims.get(itemKey);
+    if (!existing) {
+      itemGroupedClaims.set(itemKey, claim);
+      return;
+    }
+
+    const existingStatus = normalizeClaimField(existing.status || "");
+    const claimStatus = normalizeClaimField(claim.status || "");
+    const existingCreatedAt = parseTimestamp(existing.created_at);
+    const claimCreatedAt = parseTimestamp(claim.created_at);
+
+    const shouldReplace =
+      (existingStatus !== "pending" && claimStatus === "pending") ||
+      (existingStatus === claimStatus &&
+        Number.isFinite(claimCreatedAt) &&
+        (!Number.isFinite(existingCreatedAt) || claimCreatedAt > existingCreatedAt));
+
+    const primary = shouldReplace ? claim : existing;
+    const secondary = shouldReplace ? existing : claim;
+
+    itemGroupedClaims.set(itemKey, {
+      ...primary,
+      duplicateIds: [
+        ...new Set([
+          ...(Array.isArray(primary.duplicateIds) ? primary.duplicateIds : [primary.id]),
+          ...(Array.isArray(secondary.duplicateIds) ? secondary.duplicateIds : [secondary.id]),
+        ]),
+      ],
+    });
+  });
+
+  return Array.from(itemGroupedClaims.values());
 };
 
 const parseConversationId = (target = "") => {
@@ -221,6 +265,12 @@ const mapClaim = (claim) => ({
   contact: claim.contact || claim.contact_value || "N/A",
   collegeDept: claim.college_dept || "N/A",
   programYear: claim.program_year || "N/A",
+  ownerIdImageUrl:
+    claim.owner_id_image_url ||
+    claim.owner_id_photo_url ||
+    claim.id_image_url ||
+    claim.id_photo_url ||
+    "",
   routeTo: claim.route_to || "admin-panel",
   status: formatLabel(claim.status || "pending"),
   rawStatus: claim.status || "pending",

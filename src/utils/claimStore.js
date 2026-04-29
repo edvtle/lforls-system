@@ -13,6 +13,7 @@ const seedClaims = [
     collegeDept: "College of Computer Studies",
     programYear: "BSIT - 3rd Year",
     routeTo: "item-owner",
+    ownerIdImageUrl: "",
     status: "Pending",
     submittedAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
   },
@@ -25,6 +26,7 @@ const seedClaims = [
     collegeDept: "College of Computer Studies",
     programYear: "BSCS - 2nd Year",
     routeTo: "admin-panel",
+    ownerIdImageUrl: "",
     status: "Pending",
     submittedAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
   },
@@ -55,6 +57,8 @@ const ensureSeed = () => {
 
 const bySubmittedTimeDesc = (left, right) =>
   new Date(right.submittedAt).getTime() - new Date(left.submittedAt).getTime();
+
+const isClaimActive = (status) => String(status || "").trim().toLowerCase() !== "rejected";
 
 const isSchemaMismatchError = (error) => {
   const message = String(error?.message || "").toLowerCase();
@@ -132,6 +136,7 @@ const insertClaimToSupabase = async (claim) => {
       college_dept: claim.collegeDept,
       program_year: claim.programYear,
       route_to: claim.routeTo,
+      owner_id_image_url: claim.ownerIdImageUrl,
       status: "pending",
     },
     {
@@ -143,6 +148,7 @@ const insertClaimToSupabase = async (claim) => {
       college_dept: claim.collegeDept,
       program_year: claim.programYear,
       route_to: claim.routeTo,
+      owner_id_image_url: claim.ownerIdImageUrl,
       status: "pending",
     },
     {
@@ -153,6 +159,7 @@ const insertClaimToSupabase = async (claim) => {
       college_dept: claim.collegeDept,
       program_year: claim.programYear,
       route_to: claim.routeTo,
+      owner_id_image_url: claim.ownerIdImageUrl,
       status: "pending",
     },
     {
@@ -163,6 +170,7 @@ const insertClaimToSupabase = async (claim) => {
       college_dept: claim.collegeDept,
       program_year: claim.programYear,
       route_to: claim.routeTo,
+      owner_id_image_url: claim.ownerIdImageUrl,
       status: "pending",
     },
     {
@@ -172,6 +180,7 @@ const insertClaimToSupabase = async (claim) => {
       college_dept: claim.collegeDept,
       program_year: claim.programYear,
       route_to: claim.routeTo,
+      owner_id_image_url: claim.ownerIdImageUrl,
       status: "pending",
     },
     {
@@ -181,6 +190,7 @@ const insertClaimToSupabase = async (claim) => {
       college_dept: claim.collegeDept,
       program_year: claim.programYear,
       route_to: claim.routeTo,
+      owner_id_image_url: claim.ownerIdImageUrl,
       status: "pending",
     },
     {
@@ -190,6 +200,7 @@ const insertClaimToSupabase = async (claim) => {
       college_dept: claim.collegeDept,
       program_year: claim.programYear,
       route_to: claim.routeTo,
+      owner_id_image_url: claim.ownerIdImageUrl,
       status: "pending",
     },
     {
@@ -200,6 +211,7 @@ const insertClaimToSupabase = async (claim) => {
       college_dept: claim.collegeDept,
       program_year: claim.programYear,
       route_to: claim.routeTo,
+      owner_id_image_url: claim.ownerIdImageUrl,
       status: "pending",
     },
   ];
@@ -214,9 +226,67 @@ const insertClaimToSupabase = async (claim) => {
   return null;
 };
 
+const findExistingRemoteClaimForItem = async (itemId) => {
+  if (!isSupabaseConfigured || !supabase || !itemId) {
+    return null;
+  }
+
+  const columnCandidates = ["item_id", "found_item_id", "listing_id"];
+
+  for (const column of columnCandidates) {
+    const { data, error } = await supabase
+      .from("claims")
+      .select("id, status")
+      .eq(column, itemId)
+      .limit(20);
+
+    if (error) {
+      if (isSchemaMismatchError(error)) {
+        continue;
+      }
+      throw error;
+    }
+
+    const existing = (data || []).find((claim) => isClaimActive(claim?.status));
+    if (existing) {
+      return existing;
+    }
+  }
+
+  return null;
+};
+
+const deleteRemoteClaimsByItemId = async (itemId) => {
+  if (!isSupabaseConfigured || !supabase || !itemId) {
+    return;
+  }
+
+  const columnCandidates = ["item_id", "found_item_id", "listing_id"];
+
+  for (const column of columnCandidates) {
+    const { error } = await supabase.from("claims").delete().eq(column, itemId);
+
+    if (error && !isSchemaMismatchError(error)) {
+      throw error;
+    }
+  }
+};
+
 export const getClaims = () => {
   ensureSeed();
   return parse(localStorage.getItem(CLAIMS_KEY), seedClaims).sort(bySubmittedTimeDesc);
+};
+
+export const removeClaimsByItemId = async (itemId) => {
+  if (!itemId) {
+    return;
+  }
+
+  const next = getClaims().filter((claim) => String(claim.itemId) !== String(itemId));
+  writeRaw(next);
+
+  await deleteRemoteClaimsByItemId(itemId);
+  window.dispatchEvent(new Event(CLAIMS_EVENT));
 };
 
 export const createClaim = async ({
@@ -226,6 +296,7 @@ export const createClaim = async ({
   contact,
   collegeDept,
   programYear,
+  ownerIdImageUrl = "",
   claimantId,
   routeTo = "admin-panel",
 }) => {
@@ -244,6 +315,19 @@ export const createClaim = async ({
     throw new Error("You must be logged in to submit ownership details.");
   }
 
+  const existingLocalClaim = getClaims().find(
+    (entry) => String(entry.itemId) === String(itemId) && isClaimActive(entry.status),
+  );
+
+  if (existingLocalClaim) {
+    throw new Error("A claim submission for this item is already under admin review.");
+  }
+
+  const existingRemoteClaim = await findExistingRemoteClaimForItem(itemId);
+  if (existingRemoteClaim) {
+    throw new Error("A claim submission for this item is already under admin review.");
+  }
+
   const claim = {
     id: `CLM-${Date.now().toString().slice(-6)}-${Math.random().toString(16).slice(2, 4).toUpperCase()}`,
     itemId: itemId || "unknown-item",
@@ -253,6 +337,7 @@ export const createClaim = async ({
     contact: contact.trim(),
     collegeDept: collegeDept.trim(),
     programYear: programYear.trim(),
+    ownerIdImageUrl: String(ownerIdImageUrl || "").trim(),
     routeTo,
     status: "Pending",
     submittedAt: new Date().toISOString(),

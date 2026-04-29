@@ -885,6 +885,19 @@
   min-height: 7.5rem;
 }
 
+.details-form-field small {
+  color: rgba(224, 239, 220, 0.78);
+  line-height: 1.5;
+}
+
+.details-modal-upload-preview {
+  width: min(100%, 22rem);
+  max-height: 18rem;
+  object-fit: cover;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(93, 214, 44, 0.16);
+}
+
 .details-form-field input:focus,
 .details-form-field select:focus,
 .details-form-field textarea:focus {
