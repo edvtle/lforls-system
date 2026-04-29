@@ -8,6 +8,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "../utils/notificationStore";
+import "../styles/Notifications.css";
 
 const formatRelativeTime = (isoDate) => {
   const then = new Date(isoDate).getTime();

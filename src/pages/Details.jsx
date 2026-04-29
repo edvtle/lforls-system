@@ -1148,20 +1148,31 @@ const Details = () => {
                       />
                     </label>
 
-                    <label className="details-form-field">
+                    <div className="details-form-field details-file-input-field">
                       <span>Attach Owner ID Picture</span>
-                      <input
-                        ref={ownerIdInputRef}
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={handleOwnerIdImageChange}
-                        required={!formState.ownerIdImageUrl}
-                      />
+                      <div className="details-file-input-wrapper">
+                        <div className="details-file-input-label">
+                          <span className="details-file-input-text">
+                            {formState.ownerIdImageName || "No file chosen"}
+                          </span>
+                        </div>
+                        <label className="details-file-input-button">
+                          <span>Choose File</span>
+                          <input
+                            ref={ownerIdInputRef}
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={handleOwnerIdImageChange}
+                            required={!formState.ownerIdImageUrl}
+                            aria-label="Attach owner's ID picture"
+                          />
+                        </label>
+                      </div>
                       <small>
                         Upload a clear photo of the owner&apos;s ID. This is required for ownership verification.
                       </small>
-                    </label>
+                    </div>
 
                     {formState.ownerIdImageUrl ? (
                       <div className="details-form-field">

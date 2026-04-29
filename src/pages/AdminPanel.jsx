@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBoxOpen,
+  faBars,
   faChartColumn,
   faCircleCheck,
   faCircleExclamation,
@@ -161,6 +162,7 @@ const AdminPanel = () => {
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const [activeMenu, setActiveMenu] = useState("home");
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [panelData, setPanelData] = useState(emptyPanelState);
   const [isLoading, setIsLoading] = useState(true);
@@ -226,6 +228,10 @@ const AdminPanel = () => {
     const themeMode = window.localStorage.getItem("lforls:themeMode") || "dark";
     document.documentElement.dataset.theme = themeMode;
   }, []);
+
+  useEffect(() => {
+    setIsMobileNavOpen(false);
+  }, [activeMenu]);
 
   const showSnackbar = (message) => {
     setSnackbar({ open: true, message });
@@ -1432,7 +1438,7 @@ const AdminPanel = () => {
                       className={isRowSelected("items", item.id) ? "admin-row-selected" : ""}
                       onClick={handleRowToggle("items", item.id)}
                     >
-                      <td className="admin-select-col">
+                      <td className="admin-select-col" data-label="Select">
                         <input
                           type="checkbox"
                           className="admin-table-check"
@@ -1441,19 +1447,19 @@ const AdminPanel = () => {
                           aria-label={`Select item ${item.name}`}
                         />
                       </td>
-                      <td>
+                      <td data-label="Image">
                         <img
                           src={item.image}
                           alt={item.name}
                           className="admin-thumb"
                         />
                       </td>
-                      <td>
+                      <td data-label="Item Name">
                         <strong>{item.name}</strong>
                         <small>{item.id}</small>
                       </td>
-                      <td>{item.category}</td>
-                      <td>
+                      <td data-label="Category">{item.category}</td>
+                      <td data-label="Status">
                         <span
                           className={`admin-status admin-status-${item.typeLabel.toLowerCase()}`}
                         >
@@ -1465,8 +1471,8 @@ const AdminPanel = () => {
                           {item.lifecycleStatus}
                         </span>
                       </td>
-                      <td>{item.date}</td>
-                      <td>
+                      <td data-label="Date">{item.date}</td>
+                      <td data-label="Actions">
                         <div className="admin-action-row">
                           {item.rawStatus === "resolved" ? (
                             <button
@@ -1634,7 +1640,7 @@ const AdminPanel = () => {
                       className={isRowSelected("users", user.id) ? "admin-row-selected" : ""}
                       onClick={handleRowToggle("users", user.id)}
                     >
-                      <td className="admin-select-col">
+                      <td className="admin-select-col" data-label="Select">
                         <input
                           type="checkbox"
                           className="admin-table-check"
@@ -1643,19 +1649,19 @@ const AdminPanel = () => {
                           aria-label={`Select user ${user.name}`}
                         />
                       </td>
-                      <td>{user.name}</td>
-                      <td>{user.email}</td>
-                      <td>{user.department || "N/A"}</td>
-                      <td>{user.yearSection || "N/A"}</td>
-                      <td>{user.reportsCount}</td>
-                      <td>
+                      <td data-label="User Name">{user.name}</td>
+                      <td data-label="Email">{user.email}</td>
+                      <td data-label="Department">{user.department || "N/A"}</td>
+                      <td data-label="YR/SECTION">{user.yearSection || "N/A"}</td>
+                      <td data-label="Reports">{user.reportsCount}</td>
+                      <td data-label="Status">
                         <span
                           className={`admin-review admin-review-${user.status.toLowerCase()}`}
                         >
                           {user.status}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="Actions">
                         <div className="admin-action-row">
                           <button
                             type="button"
@@ -1789,7 +1795,7 @@ const AdminPanel = () => {
                           className={`admin-archive-row ${isRowSelected("archivedUsers", user.id) ? "admin-archive-row-selected admin-row-selected" : ""}`}
                           onClick={handleRowToggle("archivedUsers", user.id)}
                         >
-                          <td className="admin-select-col admin-archive-checkbox-cell">
+                          <td className="admin-select-col admin-archive-checkbox-cell" data-label="Select">
                             <input
                               type="checkbox"
                               className="admin-table-check admin-archive-row-checkbox"
@@ -1798,17 +1804,17 @@ const AdminPanel = () => {
                               aria-label={`Select archived user ${user.name}`}
                             />
                           </td>
-                          <td>{user.name}</td>
-                          <td>{user.email}</td>
-                          <td>{user.department || "N/A"}</td>
-                          <td>{user.yearSection || "N/A"}</td>
-                          <td>{user.reportsCount}</td>
-                          <td>
+                          <td data-label="User Name">{user.name}</td>
+                          <td data-label="Email">{user.email}</td>
+                          <td data-label="Department">{user.department || "N/A"}</td>
+                          <td data-label="YR/SECTION">{user.yearSection || "N/A"}</td>
+                          <td data-label="Reports">{user.reportsCount}</td>
+                          <td data-label="Status">
                             <span className="admin-review admin-review-archived">
                               {user.status}
                             </span>
                           </td>
-                          <td>
+                          <td data-label="Actions">
                             <div className="admin-action-row">
                               <button
                                 type="button"
@@ -1906,7 +1912,7 @@ const AdminPanel = () => {
                       className={isRowSelected("claims", claim.id) ? "admin-row-selected" : ""}
                       onClick={handleRowToggle("claims", claim.id)}
                     >
-                      <td className="admin-select-col">
+                      <td className="admin-select-col" data-label="Select">
                         <input
                           type="checkbox"
                           className="admin-table-check"
@@ -1915,14 +1921,14 @@ const AdminPanel = () => {
                           aria-label={`Select claim ${claim.id}`}
                         />
                       </td>
-                      <td>{claim.id}</td>
-                      <td>{claim.item}</td>
-                      <td>{claim.fullName}</td>
-                      <td>{claim.contact}</td>
-                      <td>{claim.collegeDept || "N/A"}</td>
-                      <td>{claim.programYear || "N/A"}</td>
-                      <td>{claim.routeTo || "admin-panel"}</td>
-                      <td>
+                      <td data-label="Claim ID">{claim.id}</td>
+                      <td data-label="Item">{claim.item}</td>
+                      <td data-label="Claiming User">{claim.fullName}</td>
+                      <td data-label="Contact">{claim.contact}</td>
+                      <td data-label="College Dept">{claim.collegeDept || "N/A"}</td>
+                      <td data-label="Program Year">{claim.programYear || "N/A"}</td>
+                      <td data-label="Route">{claim.routeTo || "admin-panel"}</td>
+                      <td data-label="Actions">
                         <div className="admin-action-row">
                           <button
                             type="button"
@@ -2032,7 +2038,7 @@ const AdminPanel = () => {
                       className={isRowSelected("flags", flag.id) ? "admin-row-selected" : ""}
                       onClick={handleRowToggle("flags", flag.id)}
                     >
-                      <td className="admin-select-col">
+                      <td className="admin-select-col" data-label="Select">
                         <input
                           type="checkbox"
                           className="admin-table-check"
@@ -2041,11 +2047,11 @@ const AdminPanel = () => {
                           aria-label={`Select report ${flag.id}`}
                         />
                       </td>
-                      <td>{flag.reason}</td>
-                      <td>{flag.reportedStudent}</td>
-                      <td>{flag.severity}</td>
-                      <td>{flag.status}</td>
-                      <td>
+                      <td data-label="Reason">{flag.reason}</td>
+                      <td data-label="Reported Student">{flag.reportedStudent}</td>
+                      <td data-label="Severity">{flag.severity}</td>
+                      <td data-label="Status">{flag.status}</td>
+                      <td data-label="Actions">
                         <div className="admin-action-row admin-action-row-reports">
                           <button
                             type="button"
@@ -2135,16 +2141,33 @@ const AdminPanel = () => {
         delay={0.02}
         threshold={0.02}
       >
-        <aside className="admin-sidebar">
+        <aside className={`admin-sidebar ${isMobileNavOpen ? "admin-sidebar-open" : ""}`}>
           <div className="admin-sidebar-brand">
-            <img src="/logo.png" alt="PLP Lost and Found" />
-            <div>
-              <small>PLP - LOST AND FOUND</small>
-              <strong>Admin Control</strong>
+            <div className="admin-sidebar-brand-copy">
+              <img src="/logo.png" alt="PLP Lost and Found" />
+              <div>
+                <small>PLP - LOST AND FOUND</small>
+                <strong>Admin Control</strong>
+              </div>
             </div>
+
+            <button
+              type="button"
+              className="admin-mobile-menu-toggle"
+              onClick={() => setIsMobileNavOpen((current) => !current)}
+              aria-label={isMobileNavOpen ? "Close admin navigation" : "Open admin navigation"}
+              aria-expanded={isMobileNavOpen}
+              aria-controls="admin-mobile-navigation"
+            >
+              <FontAwesomeIcon icon={isMobileNavOpen ? faXmark : faBars} />
+            </button>
           </div>
 
-          <nav className="admin-menu" aria-label="Admin sections">
+          <nav
+            id="admin-mobile-navigation"
+            className={`admin-menu ${isMobileNavOpen ? "admin-menu-open" : ""}`}
+            aria-label="Admin sections"
+          >
             {menuItems.map((item) => (
               <button
                 key={item.id}
@@ -2154,7 +2177,10 @@ const AdminPanel = () => {
                     ? "admin-menu-btn admin-menu-btn-active"
                     : "admin-menu-btn"
                 }
-                onClick={() => setActiveMenu(item.id)}
+                onClick={() => {
+                  setActiveMenu(item.id);
+                  setIsMobileNavOpen(false);
+                }}
               >
                 <FontAwesomeIcon icon={item.icon} />
                 <span>{item.label}</span>
