@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
+import { sendReportNotificationEmail } from "./notificationEmailService";
 
 const normalize = (value = "") =>
   String(value ?? "")
@@ -772,4 +773,11 @@ export const submitItemListingReport = async ({
 
     throw error;
   }
+
+  await sendReportNotificationEmail({
+    itemId,
+    reporterUserId: reporterId,
+    reason: safeReason,
+    message: safeDetails,
+  });
 };

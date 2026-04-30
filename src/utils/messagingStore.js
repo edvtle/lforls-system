@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "../services/supabaseClient";
+import { sendReportNotificationEmail } from "../services/notificationEmailService";
 
 const MESSAGES_UPDATED_EVENT = "lforls:messages-updated";
 
@@ -258,6 +259,7 @@ export const reportConversation = async ({
   itemId,
   itemName,
   userId,
+  reportedUserId,
   reason,
   customCategory,
   message,
@@ -298,6 +300,15 @@ export const reportConversation = async ({
   if (error) {
     throw error;
   }
+
+  await sendReportNotificationEmail({
+    conversationId,
+    reporterUserId: userId,
+    reportedUserId: reportedUserId || null,
+    reason: finalReason,
+    message: normalizedMessage,
+    itemId,
+  });
 
   await updateConversationFlags(conversationId, { reported: true });
 };

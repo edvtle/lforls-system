@@ -124,7 +124,6 @@ const Profile = () => {
   });
   const [draftProfile, setDraftProfile] = useState(accountProfile);
   const [settings, setSettings] = useState({
-    matchAlerts: true,
     messageAlerts: true,
     emailUpdates: false,
     password: "",
@@ -213,6 +212,17 @@ const Profile = () => {
 
     setAccountProfile(next);
     setDraftProfile(next);
+    setSettings((current) => ({
+      ...current,
+      messageAlerts:
+        typeof authProfile.messageAlerts === "boolean"
+          ? authProfile.messageAlerts
+          : current.messageAlerts,
+      emailUpdates:
+        typeof authProfile.emailUpdates === "boolean"
+          ? authProfile.emailUpdates
+          : current.emailUpdates,
+    }));
   }, [authProfile]);
 
   useEffect(() => {
@@ -370,6 +380,8 @@ const Profile = () => {
           collegeDept: draftProfile.collegeDept,
           programYear: draftProfile.programYear,
           program: draftProfile.program,
+          messageAlerts: settings.messageAlerts,
+          emailUpdates: settings.emailUpdates,
         });
       }
 
@@ -792,14 +804,6 @@ const Profile = () => {
         <section className="profile-settings-group">
           <h4>Notification preferences</h4>
           <div className="profile-preferences">
-            <label>
-              <input
-                type="checkbox"
-                checked={settings.matchAlerts}
-                onChange={(event) => setSettings((current) => ({ ...current, matchAlerts: event.target.checked }))}
-              />
-              Match alerts
-            </label>
             <label>
               <input
                 type="checkbox"

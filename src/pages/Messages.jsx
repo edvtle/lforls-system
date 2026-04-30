@@ -444,6 +444,7 @@ const Messages = () => {
         itemId: activeConversation.itemId,
         itemName: activeConversation.context,
         userId: currentUserId,
+        reportedUserId: activeConversation.reporterId,
         reason: reportForm.reason,
         customCategory: reportForm.customCategory,
         message: reportForm.message,

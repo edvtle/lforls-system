@@ -17,6 +17,14 @@ const normalizeProfile = (profile, fallbackEmail = "") => ({
   status: profile?.status || "active",
   suspendedUntil: profile?.suspended_until || "",
   avatarUrl: profile?.avatar_url || "",
+  messageAlerts:
+    typeof profile?.notification_message_alerts === "boolean"
+      ? profile.notification_message_alerts
+      : true,
+  emailUpdates:
+    typeof profile?.notification_email_updates === "boolean"
+      ? profile.notification_email_updates
+      : false,
 });
 
 const normalizeEmail = (email = "") => email.trim().toLowerCase();
@@ -24,6 +32,15 @@ const resetApiBaseUrl =
   import.meta.env.VITE_RESET_API_BASE_URL || "http://localhost:4001";
 const resetTokensByEmail = new Map();
 const resetTokenStorageKey = (email) => `reset_token_${normalizeEmail(email)}`;
+const profileSelectColumns =
+  "id, full_name, email, college_dept, year_section, program, role, status, suspended_until, avatar_url, notification_message_alerts, notification_email_updates";
+const profileSelectColumnsFallback =
+  "id, full_name, email, college_dept, year_section, program, role, status, suspended_until, avatar_url";
+
+const isMissingProfilePreferenceColumnError = (error) => {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("could not find the column") || message.includes("column") && message.includes("does not exist");
+};
 
 const getStoredResetToken = (email) => {
   if (typeof window === "undefined") return "";
@@ -204,13 +221,26 @@ export const updatePasswordAfterReset = async ({
 
 export const fetchProfileById = async (userId, fallbackEmail = "") => {
   assertSupabase();
-  const { data, error } = await supabase
+  let data;
+  let error;
+
+  const primary = await supabase
     .from("profiles")
-    .select(
-      "id, full_name, email, college_dept, year_section, program, role, status, suspended_until, avatar_url",
-    )
+    .select(profileSelectColumns)
     .eq("id", userId)
     .single();
+  data = primary.data;
+  error = primary.error;
+
+  if (error && isMissingProfilePreferenceColumnError(error)) {
+    const fallback = await supabase
+      .from("profiles")
+      .select(profileSelectColumnsFallback)
+      .eq("id", userId)
+      .single();
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error && error.code !== "PGRST116") {
     throw error;
@@ -238,13 +268,38 @@ export const updateProfileById = async (userId, updates) => {
     program: updates.program?.trim() || "",
   };
 
-  const { data, error } = await supabase
+  if (typeof updates.messageAlerts === "boolean") {
+    payload.notification_message_alerts = updates.messageAlerts;
+  }
+
+  if (typeof updates.emailUpdates === "boolean") {
+    payload.notification_email_updates = updates.emailUpdates;
+  }
+
+  let data;
+  let error;
+
+  const primary = await supabase
     .from("profiles")
     .upsert(payload, { onConflict: "id" })
-    .select(
-      "id, full_name, email, college_dept, year_section, program, role, status, suspended_until, avatar_url",
-    )
+    .select(profileSelectColumns)
     .single();
+  data = primary.data;
+  error = primary.error;
+
+  if (error && isMissingProfilePreferenceColumnError(error)) {
+    const fallbackPayload = { ...payload };
+    delete fallbackPayload.notification_message_alerts;
+    delete fallbackPayload.notification_email_updates;
+
+    const fallback = await supabase
+      .from("profiles")
+      .upsert(fallbackPayload, { onConflict: "id" })
+      .select(profileSelectColumnsFallback)
+      .single();
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) throw error;
 

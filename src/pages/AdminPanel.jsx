@@ -685,6 +685,15 @@ const AdminPanel = () => {
       onConfirm: () => removeItem(item.id),
     });
 
+  const confirmReopenItem = (item) =>
+    openConfirmAction({
+      title: "Reopen this item?",
+      message: `"${item.name}" will be restored to Browse and marked as open again.`,
+      confirmLabel: "Reopen Item",
+      tone: "warning",
+      onConfirm: () => changeItemStatus(item.id, "open"),
+    });
+
   const closeSuspendModal = () => {
     setSuspendUserModal(null);
     setSuspendForm({ durationValue: "1", durationUnit: "hours" });
@@ -732,6 +741,7 @@ const AdminPanel = () => {
   const toggleUserStatus = async (user, status) => {
     const userId = user.id;
     const normalizedStatus = String(status || "active").toLowerCase();
+    const currentStatus = String(user.rawStatus || user.status || "active").toLowerCase();
 
     if (normalizedStatus === "suspended") {
       openConfirmAction({
@@ -754,6 +764,36 @@ const AdminPanel = () => {
           withMutationFeedback(
             () => updateAdminUserStatus(userId, normalizedStatus),
             `User ${userId} is now Banned.`,
+          ),
+      });
+      return;
+    }
+
+    if (normalizedStatus === "active" && currentStatus === "suspended") {
+      openConfirmAction({
+        title: "Unsuspend this user?",
+        message: `${user.name} will regain access to the system immediately.`,
+        confirmLabel: "Unsuspend User",
+        tone: "warning",
+        onConfirm: () =>
+          withMutationFeedback(
+            () => updateAdminUserStatus(userId, normalizedStatus),
+            `User ${userId} is now Active.`,
+          ),
+      });
+      return;
+    }
+
+    if (normalizedStatus === "active" && currentStatus === "banned") {
+      openConfirmAction({
+        title: "Unban this user?",
+        message: `${user.name} will be allowed to use the system again immediately.`,
+        confirmLabel: "Unban User",
+        tone: "warning",
+        onConfirm: () =>
+          withMutationFeedback(
+            () => updateAdminUserStatus(userId, normalizedStatus),
+            `User ${userId} is now Active.`,
           ),
       });
       return;
@@ -1478,7 +1518,7 @@ const AdminPanel = () => {
                             <button
                               type="button"
                               className="admin-action admin-action-reject"
-                              onClick={() => changeItemStatus(item.id, "open")}
+                              onClick={() => confirmReopenItem(item)}
                             >
                               Reopen
                             </button>

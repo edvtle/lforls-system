@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import { itemsUpdatedEventName } from "../utils/itemStore";
 import { createNotification } from "../utils/notificationStore";
+import { sendAccountStatusEmail, sendClaimDecisionEmail } from "./notificationEmailService";
 
 const resetApiBaseUrl =
   import.meta.env.VITE_RESET_API_BASE_URL || "http://localhost:4001";
@@ -744,6 +745,14 @@ export const updateAdminUserStatus = async (userId, status, options = {}) => {
     .eq("id", userId);
   if (error) throw error;
 
+  if (normalizedStatus === "suspended" || normalizedStatus === "banned") {
+    await sendAccountStatusEmail({
+      userId,
+      status: normalizedStatus,
+      suspensionEndsAt: payload.suspended_until || "",
+    });
+  }
+
   return payload;
 };
 
@@ -868,6 +877,8 @@ export const updateAdminClaimStatus = async (claimId, status) => {
     .update({ status })
     .eq("id", claimId);
   if (error) throw error;
+
+  await sendClaimDecisionEmail({ claimId, status });
 };
 
 export const updateAdminFlagStatus = async (flagId, status) => {
