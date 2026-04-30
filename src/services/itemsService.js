@@ -46,6 +46,7 @@ const toCardItem = (item) => {
     rawStatus: item.status || "open",
     matchPercent: Math.max(0, Math.min(100, Number(item.match_score || 0))),
     image: primary,
+    hasRealImage: primary !== ITEM_FALLBACK_IMAGE,
     gallery,
     description: item.description || "",
     color: item.color || "",

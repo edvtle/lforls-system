@@ -2,270 +2,518 @@
 
 ## Overview
 
-The Matches tab does not use a trained machine learning model yet. It uses a rule-based scoring system that compares a selected lost item or an uploaded image against the items in the database.
+The Matches tab currently uses a deterministic, rule-based ranking system. It does not use a trained machine learning model yet.
 
-The goal is to rank the most likely matches first by combining text, metadata, and image-derived signals.
+Instead, it builds a lost-item query profile, compares that profile against found-item records, and ranks the strongest candidates by a weighted similarity score.
 
-## What the Matches Tab Does
+The main implementation lives in:
 
-The tab supports two matching flows:
+- `src/utils/matching.js`
+- `src/pages/MatchResults.jsx`
 
-1. Select mode
-   - The user selects one of their lost reports.
-   - The system compares that report against all found items in the database.
+## Matching Flows
 
-2. Upload mode
-   - The user uploads an image.
-   - The system scans the image for visual cues such as color, basic image quality, and filename hints.
-   - Those cues are converted into a temporary lost-item profile.
-   - The temporary profile is then matched against found items.
+The tab supports two input modes.
 
-## If The User Only Uploads An Image
+### 1. Select mode
 
-When the user uploads only an image, the system follows a lightweight browser-side scan and matching flow:
+The user selects one of their existing lost reports.
 
-1. The file is loaded in the browser as an image preview.
-2. The image is drawn into a hidden canvas so pixels can be read.
-3. The scan checks the image for:
+That report is converted into a matching profile with fields such as:
+
+- `itemName`
+- `category`
+- `locationLost`
+- `dateLost`
+- `description`
+- `identifiers`
+- `color`
+- `brand`
+- `paletteColors`
+- `hasImage`
+
+The matcher then compares that lost profile against all items whose status is `Found`.
+
+### 2. Upload mode
+
+The user uploads a single image for quick matching.
+
+The browser performs a lightweight image scan and turns the result into a temporary lost-item profile. That temporary profile is then matched against all found items.
+
+Upload mode is useful when the user has not created a detailed lost report yet.
+
+## Upload Mode Image Scan
+
+The quick-match scan is browser-side and heuristic-based. It is not a full vision model, but it extracts useful signals from the uploaded image.
+
+### What happens during scanning
+
+1. The image is loaded into an off-screen canvas.
+2. A subject-focus step tries to isolate the likely main object instead of scanning the full frame directly.
+3. The focused region is scaled down and analyzed for visual signals.
+4. The system derives a temporary label and category guess using the image data plus the existing found-item database.
+
+### Subject-focus step
+
+The upload pipeline now tries to focus on the main object before scanning.
+
+It does this by:
+
+- estimating the background color from the image corners
+- measuring how much each pixel differs from that background
+- adding a small center-bias and edge-strength heuristic
+- building a bounding box around the likely foreground subject
+- expanding that box slightly for context
+- falling back to full-frame scan if the detected subject area looks unreliable
+
+This improves matching because color and quality signals are less affected by background clutter.
+
+### Visual signals extracted
+
+The scan currently extracts:
 
 - dominant color
-- secondary palette colors
-- brightness and contrast
-- sharpness or blur level
+- up to 3 palette colors
+- image quality score
+- image quality hints
+- whether subject focus was applied
+- approximate focus coverage
 
-4. The system looks at the filename too.
+### Quality scoring
 
-- If the filename is descriptive, it may help identify the item.
-- If the filename is generic like IMG1234, it is treated as low-value.
+The scan quality score is based on:
 
-5. The scan results are turned into a temporary item profile.
+- exposure
+- contrast
+- sharpness
 
-- The profile includes a guessed label, color, palette colors, and scan quality.
+The app also generates hints when the image is:
 
-6. That temporary profile is matched against all found items in the database.
-7. The results are ranked by confidence and shown in the Matches tab.
+- blurry
+- low contrast
+- too dark or too bright
+- too far from the subject
+- hard to isolate from the background
 
-This process improves accuracy because the match does not depend only on the filename. It uses visual signals from the image itself.
+### Label and category inference
 
-## Inputs Used For Matching
+After scanning, the app tries to infer a better query label:
 
-The matcher compares the current lost-item profile against each found item using these fields:
+- If the filename is descriptive, it may help.
+- If the filename is generic like `IMG1234`, it is treated as weak evidence.
+- The app compares detected colors and filename tokens against found items in the database.
+- It may infer a category and a better label from similar found-item names.
 
-- Item name
-- Category
-- Location
-- Date
-- Description
-- Identifiers such as serial number or tags
-- Brand
-- Image-related signals
+The quick-match profile is then built from:
 
-## How The Scoring Works
+- detected label
+- inferred category
+- dominant color
+- palette colors
+- scan quality
+- scan confidence
+- filename, if useful
 
-Each candidate match gets a score based on how closely it resembles the lost-item profile.
+## Candidate Pool
 
-The score is built from several parts:
+Regardless of the input mode, the matcher only ranks items whose status is `Found`.
 
-- Category similarity
-  - Exact matches are rewarded most strongly.
-  - Common aliases are also recognized.
+This filtering happens in `rankFoundMatches()` inside `src/utils/matching.js`.
 
-- Name similarity
-  - The item names are compared using token matching and character-level similarity.
+## Core Matching Technique
 
-- Location similarity
-  - Nearby or overlapping location text increases the score.
+The current technique is best described as:
 
-- Date similarity
-  - Items reported around the same time score higher.
+**Hybrid Rule-Based Similarity Ranking**
 
-- Description similarity
-  - Descriptions, identifiers, color, and brand hints are compared together.
+It is hybrid because it combines multiple evidence types:
 
-- Identifier similarity
-  - Serial numbers, labels, tags, and other distinctive markers raise confidence.
+- text similarity
+- category normalization
+- location similarity
+- date proximity
+- identifier similarity
+- brand similarity
+- image-derived cues
 
-- Brand similarity
-  - Matching brand text improves the score.
+It is rule-based because:
 
-- Image similarity
-  - If the lost report has an image, the matcher uses color and scan-quality signals.
+- there is no model training step
+- weights are manually defined
+- scoring behavior is deterministic
+- the same inputs always produce the same result
 
-## Main Technique Used
+## Base Weights
 
-The main technique is called:
+The matcher starts with these base weights:
 
-## Hybrid Rule-Based Similarity Ranking
+| Signal | Weight |
+|---|---:|
+| Category | 20 |
+| Name | 20 |
+| Location | 12 |
+| Date | 8 |
+| Description | 15 |
+| Identifier | 10 |
+| Brand | 7 |
+| Image | 8 |
 
-This is the title/name of the matching process used in the Matches tab.
+Total base weight: `100`
 
-It can also be described as:
+### Weight shift when an image is involved
 
-- Hybrid Rule-Based Matcher
-- Weighted Similarity Scoring
-- Multi-Signal Candidate Ranking
-- Explainable Lost-and-Found Matching System
+If the lost-side query has an image, the matcher uses a different effective weighting:
 
-The system is "hybrid" because it combines multiple signals:
+| Signal | Weight with Image |
+|---|---:|
+| Category | 22 |
+| Name | 22 |
+| Location | 8 |
+| Date | 6 |
+| Description | 18 |
+| Identifier | 8 |
+| Brand | 6 |
+| Image | 18 |
 
-- Text signals
-- Category signals
-- Location and date signals
-- Identifier and brand signals
-- Basic image-derived signals
+This gives more influence to visual and descriptive signals when the query includes image evidence.
 
-The system is "rule-based" because it does not learn from training data yet. The scoring behavior is manually defined through rules, weights, and similarity formulas.
+## Similarity Functions Used
 
-It is not a trained AI model. Instead, it combines several deterministic scoring rules:
+### 1. Category similarity
 
-- Text similarity for names and descriptions
-- Category matching and category aliases
-- Location and date closeness
-- Identifier and brand overlap
-- Simple image analysis for colors and scan quality
+Category comparison first normalizes common aliases, for example:
 
-Each of those signals is weighted, then combined into a final match percentage.
+- `gadget` -> `electronics`
+- `wallet` -> `accessories`
+- `id card` -> `id`
 
-In practice, this behaves like a lightweight expert system:
+If the normalized categories are equal, the category score is `1.0`.
 
-- It uses known rules to compare items.
-- It ranks the strongest candidates first.
-- It explains why a match was suggested.
+If not, the matcher falls back to token overlap and scales that result down.
 
-This approach works well for structured lost-and-found data, especially when reports include useful item details or a clear image.
+### 2. Name similarity
 
-## Applications And Techniques Used
+Name similarity uses the maximum of:
 
-The Matches tab uses several lightweight matching techniques. These are the actual techniques applied in the current implementation:
+- Jaccard token similarity
+- bigram similarity
 
-| Application Area | Technique Used | Purpose |
-|---|---|---|
-| Item name matching | Token matching and bigram similarity | Compares item names even when wording is slightly different |
-| Description matching | Jaccard similarity and bigram similarity | Finds overlap between descriptive text, color, identifiers, and brand hints |
-| Category matching | Category normalization and alias mapping | Treats related words as the same category, such as gadget and electronics |
-| Location matching | Text overlap and containment matching | Gives higher score when locations are exact, nearby, or share keywords |
-| Date matching | Date-distance scoring | Gives higher score when lost and found dates are close |
-| Identifier matching | Exact match, token overlap, and bigram similarity | Gives strong weight to serial numbers, labels, tags, and unique markings |
-| Brand matching | Text normalization and character similarity | Rewards matching brand names |
-| Image upload scanning | Browser canvas pixel analysis | Extracts dominant color, palette colors, brightness, contrast, and sharpness |
-| Image-based matching | Color-group matching and scan-quality scoring | Uses image color and quality signals to improve candidate ranking |
-| Final ranking | Weighted score normalization | Combines all available signals into a final percentage |
-| Result explanation | Rule-based reason generation | Shows why an item was suggested as a match |
+This helps when the wording is similar but not identical.
 
-### Technique Title For Documentation
+### 3. Location similarity
 
-For formal documentation, the recommended title is:
+Location matching is text-based:
 
-**Hybrid Rule-Based Similarity Ranking for Lost-and-Found Item Matching**
+- exact match -> `1.0`
+- containment/overlap -> `0.72`
+- moderate token overlap -> `0.62` or `0.4`
+- weak relation -> `0.15`
+- missing or placeholder values like `Unknown` -> `0`
 
-This title is accurate because the system:
+### 4. Date similarity
 
-1. Uses rules instead of a trained neural network.
-2. Combines multiple data sources.
-3. Scores each candidate using weighted similarity.
-4. Ranks found items based on the final confidence percentage.
+Date similarity is based on the gap in days:
 
-### Short Version
+- <= 1 day -> `1.0`
+- <= 3 days -> `0.75`
+- <= 7 days -> `0.5`
+- <= 14 days -> `0.25`
+- beyond that -> `0`
 
-If a shorter title is needed, use:
+### 5. Description similarity
 
-**Weighted Similarity Matching**
+Description similarity combines lost-side text with related details:
 
-This is simpler and still describes the core process.
+- description
+- identifiers
+- color
+- brand
 
-### Accuracy Percentage
+It compares those against found-side:
 
-The percentage shown in the Matches tab is the final match score after weighting and calibration.
+- description
+- brand
+- serial number
+- color
 
-In simple terms:
+The matcher uses the stronger of:
 
-1. Each signal gets a weighted score.
-2. The system adds those points together to get a raw score.
-3. The raw score is adjusted for how many useful signals were actually available.
-4. The result is converted to a percentage between 0 and 100.
+- Jaccard similarity on the combined text
+- bigram similarity on the main descriptions
 
-The scoring logic is effectively:
+### 6. Identifier similarity
+
+Identifier similarity uses:
+
+- exact match
+- token overlap
+- bigram similarity
+
+This signal is especially useful for:
+
+- serial numbers
+- labels
+- tags
+- unique printed text
+
+Generic filenames are intentionally treated as low-value identifier input.
+
+### 7. Brand similarity
+
+Brand similarity uses normalized text and bigram similarity, with full credit for exact matches.
+
+### 8. Image similarity
+
+Image similarity is still heuristic-based, not embedding-based.
+
+It combines:
+
+- label similarity between the query and found item
+- color similarity between canonical color groups
+- category similarity
+- descriptor similarity from text/color context
+- scan quality score
+- image confidence score
+
+Internally, image similarity is composed approximately as:
+
+- label-related score: `58%`
+- color score: `27%`
+- category contribution: `8%`
+- descriptor contribution: `4%`
+- scan quality contribution: `2%`
+- confidence contribution: `1%`
+
+## Canonical Color Matching
+
+Colors are normalized into groups such as:
+
+- black
+- white
+- gray
+- blue
+- green
+- red
+- pink
+- yellow
+- orange
+- brown
+- purple
+
+This allows related descriptions like `navy`, `olive`, `khaki`, or `maroon` to contribute to a color match.
+
+## How the Final Score Is Computed
+
+The final score is not just a raw weighted sum. It goes through several stages.
+
+### Stage 1: Per-signal weighted breakdown
+
+Each similarity signal produces a 0 to 1 score.
+
+That score is multiplied by the effective weight for that signal.
+
+Example structure:
 
 ```text
-rawScore = category + name + location + date + description + identifier + brand + image
-normalizedScore = rawScore / availableWeight * 100
-finalAccuracy = normalizedScore adjusted by signal coverage and confidence reliability
+breakdown.category    = categoryScore * weight.category
+breakdown.name        = nameScore * weight.name
+breakdown.location    = locationScore * weight.location
+breakdown.date        = dateScore * weight.date
+breakdown.description = descriptionScore * weight.description
+breakdown.identifier  = identifierScore * weight.identifier
+breakdown.brand       = brandScore * weight.brand
+breakdown.image       = imageScore * weight.image
 ```
 
-This means:
+### Stage 2: Raw score
 
-- More matching evidence increases the percentage.
-- Missing fields do not unfairly punish the score.
-- Weak or conflicting signals reduce confidence.
-- Strong agreement across multiple fields pushes the percentage higher.
+The weighted parts are added together:
 
-The app also uses match labels to help interpret the result:
+```text
+rawScore = sum(all weighted breakdown values)
+```
 
-- 80% and above: Strong Match
-- 50% to 79%: Possible Match
-- Below 50%: Weak Match
+### Stage 3: Available-weight normalization
 
-## Upload Mode Image Scanning
+The matcher does not always use the full 100 possible weight.
 
-Upload mode performs a lightweight browser-side image scan. This is not object detection or full computer vision, but it helps improve matching quality.
+If a query is missing meaningful signals, those weights are removed from the denominator. For example:
 
-The scan extracts:
+- missing date removes date weight
+- missing brand removes brand weight
+- generic filename does not count as a useful identifier
+- no image removes image weight
 
-- Dominant color
-- Top palette colors
-- Image quality score
-- Quality hints when the image is blurry, low-contrast, or poorly lit
+Then:
 
-It also tries to infer a better item label when the file name is generic, such as IMG1234 or DSC0001.
+```text
+normalizedScore = rawScore / availableWeight * 100
+```
 
-## Confidence And Ranking
+This prevents incomplete reports from being punished unfairly just because certain fields were blank.
 
-Each candidate item receives:
+### Stage 4: Support and consensus adjustment
 
-- A raw similarity score
-- A normalized score
-- A signal coverage value
-- A confidence label:
-  - Strong Match
-  - Possible Match
-  - Weak Match
+The matcher then looks at how many useful signals were available and how many of them strongly agree.
 
-The final ranking is based on the adjusted score, so items with stronger evidence appear first.
+It computes:
 
-## Why This Is Not True Machine Learning Yet
+- `supportCount`
+- `strongSignalCount`
+- `veryStrongSignalCount`
 
-This system is intelligent, but it is still rule-based.
+From those it derives:
 
-It does not currently train on past match outcomes or use image embeddings from a vision model.
+- `supportMultiplier`
+- `consensusMultiplier`
 
-That means:
+These reward matches that are supported by multiple signals rather than only one.
 
-- It works well for structured item data.
-- It can handle many common lost-and-found cases.
-- It is not guaranteed to understand every object type perfectly.
+### Stage 5: Conflict penalties and bonuses
 
-## Strengths Of The Current Approach
+The matcher also applies conflict logic, for example:
 
-- Fast and runs entirely in the browser for scanning.
-- Easy to explain and debug.
-- Works with incomplete item reports.
-- Uses multiple signals instead of relying on only one field.
+- color mismatch when both sides explicitly specify color
+- weak image similarity combined with weak category/name agreement
+- very large date gaps
+
+It can also apply a small bonus when:
+
+- image similarity is strong
+- and category or name similarity is also strong
+
+### Stage 6: Coverage damping
+
+The matcher computes signal coverage from the ratio:
+
+```text
+coverage = availableWeight / totalEffectiveWeight
+```
+
+That coverage is then damped slightly before the final score is produced.
+
+This helps keep the score realistic when only a small portion of the expected evidence is present.
+
+### Stage 7: Final score
+
+The final match score is:
+
+```text
+finalScore =
+  normalizedScore
+  * coverageDamping
+  * supportMultiplier
+  * consensusMultiplier
+  * conflictPenalty
+```
+
+The value is clamped and converted to a percentage from `0` to `100`.
+
+## Confidence Labels
+
+The matcher currently labels scores as:
+
+- `80% and above` -> `Strong Match`
+- `50% to 79%` -> `Possible Match`
+- `Below 50%` -> `Weak Match`
+
+The Matches tab also uses `80%+` as the high-confidence filter threshold.
+
+## Match Reasons Shown in the UI
+
+The matcher also produces human-readable reasons. These are generated from the weighted breakdown when a signal crosses a threshold.
+
+Possible reasons include:
+
+- Same category
+- Similar name
+- Nearby location
+- Close report date
+- Similar description
+- Identifier overlap
+- Brand similarity
+- Image/color similarity
+
+This makes the ranking more explainable to the user.
+
+## Output Returned by `computeMatch()`
+
+Each candidate returns a match object with fields such as:
+
+- `score`
+- `rawScore`
+- `normalizedScore`
+- `signalCoverage`
+- `supportCount`
+- `strongSignalCount`
+- `confidenceReliability`
+- `label`
+- `breakdown`
+- `reasons`
+
+This output is what powers:
+
+- the percentage shown in the Matches tab
+- the confidence label
+- the explanation chips / reasons
+
+## Ranking Behavior
+
+`rankFoundMatches()`:
+
+1. filters the item list to `Found` items only
+2. computes a match object for each candidate
+3. discards zero-score candidates
+4. sorts descending by `match.score`
+5. returns only the top results
+
+The Matches page currently asks for up to 20 ranked candidates from this function.
+
+## What This System Is Good At
+
+The current approach works well for:
+
+- structured item reports
+- partial but still meaningful text data
+- matching on category, name, brand, location, and identifiers
+- using image color and quality signals without needing a backend vision model
+- explainable ranking
 
 ## Current Limitations
 
-- It cannot recognize a specific object visually the way a real vision model can.
-- It depends on the quality of the item report and uploaded image.
-- Very unusual items may not score as accurately without more training data.
+The current system is still heuristic-based, so it has limits:
 
-## Recommended Future Upgrade
+- it does not use image embeddings
+- it does not perform real object recognition
+- it does not learn from confirmed claims yet
+- unusual items can still be hard to identify from image alone
+- background-heavy images can still reduce scan quality if subject isolation is weak
 
-For near-perfect matching accuracy, the next step would be to add a real vision and ranking pipeline:
+## Recommended Future Upgrades
 
-- Image embeddings from a model such as CLIP or ViT
-- Supervised calibration using confirmed matches
-- Feedback from accepted and rejected claims
-- Hybrid ranking that combines text, metadata, and image embeddings
+The next step toward a more ML-driven matcher would be:
+
+- image embeddings from a vision model
+- text embeddings for item descriptions
+- supervised calibration using confirmed match outcomes
+- feedback from accepted/rejected claims
+- hybrid ranking that combines deterministic rules with learned similarity
 
 ## Summary
 
-The Matches tab uses a hybrid rule-based matcher. It compares lost and found items using text, metadata, and simple image analysis, then ranks the best candidates by confidence. The current process is designed to be practical, explainable, and accurate for common lost-and-found cases.
+The Matches tab currently uses a hybrid rule-based similarity matcher.
+
+It compares a lost-side query against found items using:
+
+- category
+- name
+- location
+- date
+- description
+- identifiers
+- brand
+- image-derived signals
+
+In upload mode, the browser now tries to isolate the main object before scanning the image, then uses color, quality, and inferred label/category cues to build a temporary query profile.
+
+The final percentage is not a simple sum. It is a weighted, normalized, coverage-aware, conflict-adjusted score designed to rank the most credible matches first while keeping the process explainable.

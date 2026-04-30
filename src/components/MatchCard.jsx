@@ -16,6 +16,7 @@ const MatchCard = ({ item, matchMode = "all" }) => {
   const score = Number(item.match?.score || 0);
   const scoreTone = getScoreTone(score);
   const detailsPath = `/details/${item.id}?from=matches&mode=${encodeURIComponent(matchMode)}`;
+  const itemStatusLabel = item.status === "Lost" ? "Lost item" : "Found item";
 
   return (
     <article className="match-card">
@@ -40,7 +41,7 @@ const MatchCard = ({ item, matchMode = "all" }) => {
         </p>
 
         <div className="match-card-reasons">
-          <span className="match-card-status">Found item</span>
+          <span className="match-card-status">{itemStatusLabel}</span>
           {item.match?.reasons?.length ? (
             item.match.reasons.map((reason) => <span key={reason}>{reason}</span>)
           ) : (

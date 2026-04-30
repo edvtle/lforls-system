@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCheck,
@@ -15,14 +15,21 @@ import {
   faWandMagicSparkles,
 } from "@fortawesome/free-solid-svg-icons";
 import MatchCard from "../components/MatchCard";
+import Modal from "../components/Modal";
 import { useAuth } from "../context/AuthContext";
 import { listRecentItems } from "../services/itemsService";
+import {
+  createVisualSignatureFromFile,
+  createVisualSignatureFromUrl,
+} from "../utils/imageMatching";
 import { rankFoundMatches } from "../utils/matching";
 import "../styles/MatchResults.css";
 
 const HIGH_CONFIDENCE_THRESHOLD = 80;
 
 const toLostReport = (item) => ({
+  sourceItemId: item.id,
+  sourceItemStatus: item.status,
   itemName: item.name,
   category: item.category,
   locationLost: item.location,
@@ -33,7 +40,8 @@ const toLostReport = (item) => ({
   brand: item.brand || "",
   paletteColors: item.color ? [item.color] : [],
   scanQuality: 0,
-  hasImage: Boolean(item.image),
+  imageSignature: item.imageSignature || null,
+  hasImage: Boolean(item.hasRealImage),
 });
 
 const normalize = (value = "") =>
@@ -212,6 +220,211 @@ const classifyColor = ({ r, g, b }) => {
   return "unknown";
 };
 
+const clampBox = (box, width, height) => {
+  const safeWidth = Math.max(1, Math.min(width, box.width));
+  const safeHeight = Math.max(1, Math.min(height, box.height));
+  const safeX = Math.max(0, Math.min(width - safeWidth, box.x));
+  const safeY = Math.max(0, Math.min(height - safeHeight, box.y));
+
+  return {
+    x: safeX,
+    y: safeY,
+    width: safeWidth,
+    height: safeHeight,
+  };
+};
+
+const createCornerSamples = ({ width, height, marginX, marginY }) => [
+  { startX: 0, endX: marginX, startY: 0, endY: marginY },
+  { startX: width - marginX, endX: width, startY: 0, endY: marginY },
+  { startX: 0, endX: marginX, startY: height - marginY, endY: height },
+  { startX: width - marginX, endX: width, startY: height - marginY, endY: height },
+];
+
+const getAverageBackgroundColor = (pixels, width, height) => {
+  const marginX = Math.max(4, Math.floor(width * 0.12));
+  const marginY = Math.max(4, Math.floor(height * 0.12));
+  const samples = createCornerSamples({ width, height, marginX, marginY });
+
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let count = 0;
+
+  samples.forEach(({ startX, endX, startY, endY }) => {
+    for (let y = startY; y < endY; y += 1) {
+      for (let x = startX; x < endX; x += 1) {
+        const index = (y * width + x) * 4;
+        const alpha = pixels[index + 3];
+        if (alpha < 60) {
+          continue;
+        }
+
+        r += pixels[index];
+        g += pixels[index + 1];
+        b += pixels[index + 2];
+        count += 1;
+      }
+    }
+  });
+
+  if (!count) {
+    return { r: 255, g: 255, b: 255 };
+  }
+
+  return {
+    r: r / count,
+    g: g / count,
+    b: b / count,
+  };
+};
+
+const detectFocusedSubjectBox = ({ context, width, height }) => {
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const background = getAverageBackgroundColor(pixels, width, height);
+  const foregroundScores = new Float32Array(width * height);
+  const centerX = (width - 1) / 2;
+  const centerY = (height - 1) / 2;
+  const maxCenterDistance = Math.sqrt(centerX * centerX + centerY * centerY) || 1;
+
+  let scoreSum = 0;
+  let scoreCount = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      const alpha = pixels[index + 3];
+      if (alpha < 60) {
+        continue;
+      }
+
+      const red = pixels[index];
+      const green = pixels[index + 1];
+      const blue = pixels[index + 2];
+      const colorDistance =
+        (Math.abs(red - background.r) +
+          Math.abs(green - background.g) +
+          Math.abs(blue - background.b)) /
+        (255 * 3);
+
+      const leftIndex = x > 0 ? index - 4 : index;
+      const upIndex = y > 0 ? index - width * 4 : index;
+      const edgeStrength =
+        (Math.abs(red - pixels[leftIndex]) +
+          Math.abs(green - pixels[leftIndex + 1]) +
+          Math.abs(blue - pixels[leftIndex + 2]) +
+          Math.abs(red - pixels[upIndex]) +
+          Math.abs(green - pixels[upIndex + 1]) +
+          Math.abs(blue - pixels[upIndex + 2])) /
+        (255 * 6);
+
+      const distanceFromCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+      const centerBias = 1 - distanceFromCenter / maxCenterDistance;
+      const score = colorDistance * 0.68 + edgeStrength * 0.22 + centerBias * 0.1;
+
+      foregroundScores[y * width + x] = score;
+      scoreSum += score;
+      scoreCount += 1;
+    }
+  }
+
+  if (!scoreCount) {
+    return {
+      applied: false,
+      box: { x: 0, y: 0, width, height },
+      coverage: 1,
+    };
+  }
+
+  const threshold = Math.max(0.2, scoreSum / scoreCount + 0.05);
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  let foregroundCount = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const score = foregroundScores[y * width + x];
+      if (score < threshold) {
+        continue;
+      }
+
+      foregroundCount += 1;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (maxX < minX || maxY < minY) {
+    return {
+      applied: false,
+      box: { x: 0, y: 0, width, height },
+      coverage: 1,
+    };
+  }
+
+  const rawBox = {
+    x: minX,
+    y: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+  };
+  const coverage = foregroundCount / (width * height);
+  const expandedBox = clampBox(
+    {
+      x: Math.floor(rawBox.x - rawBox.width * 0.12),
+      y: Math.floor(rawBox.y - rawBox.height * 0.12),
+      width: Math.ceil(rawBox.width * 1.24),
+      height: Math.ceil(rawBox.height * 1.24),
+    },
+    width,
+    height,
+  );
+  const focusedArea = expandedBox.width * expandedBox.height;
+  const focusRatio = focusedArea / (width * height);
+  const applied =
+    focusRatio >= 0.08 &&
+    focusRatio <= 0.92 &&
+    expandedBox.width >= width * 0.18 &&
+    expandedBox.height >= height * 0.18;
+
+  return {
+    applied,
+    box: applied ? expandedBox : { x: 0, y: 0, width, height },
+    coverage: applied ? coverage : 1,
+  };
+};
+
+const createFocusedPreview = ({ sourceCanvas, cropBox, maxSize = 220 }) => {
+  const previewCanvas = document.createElement("canvas");
+  const longestSide = Math.max(cropBox.width, cropBox.height) || 1;
+  const scale = Math.min(1, maxSize / longestSide);
+  previewCanvas.width = Math.max(1, Math.round(cropBox.width * scale));
+  previewCanvas.height = Math.max(1, Math.round(cropBox.height * scale));
+  const previewContext = previewCanvas.getContext("2d");
+
+  if (!previewContext) {
+    return "";
+  }
+
+  previewContext.drawImage(
+    sourceCanvas,
+    cropBox.x,
+    cropBox.y,
+    cropBox.width,
+    cropBox.height,
+    0,
+    0,
+    previewCanvas.width,
+    previewCanvas.height,
+  );
+
+  return previewCanvas.toDataURL("image/jpeg", 0.9);
+};
+
 const analyzeImageScan = (file) =>
   new Promise((resolve) => {
     if (!file) {
@@ -228,6 +441,39 @@ const analyzeImageScan = (file) =>
     const objectUrl = URL.createObjectURL(file);
 
     image.onload = () => {
+      const analysisLongestSide = 180;
+      const imageScale = Math.min(
+        1,
+        analysisLongestSide / Math.max(image.naturalWidth || 1, image.naturalHeight || 1),
+      );
+      const sourceWidth = Math.max(24, Math.round((image.naturalWidth || 1) * imageScale));
+      const sourceHeight = Math.max(24, Math.round((image.naturalHeight || 1) * imageScale));
+      const sourceCanvas = document.createElement("canvas");
+      sourceCanvas.width = sourceWidth;
+      sourceCanvas.height = sourceHeight;
+      const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+
+      if (!sourceContext) {
+        URL.revokeObjectURL(objectUrl);
+        resolve({
+          dominantColor: "unknown",
+          paletteColors: [],
+          qualityScore: 0,
+          qualityHints: ["Unable to scan this image in your browser."],
+          focusApplied: false,
+          focusCoverage: 0,
+          focusPreview: "",
+        });
+        return;
+      }
+
+      sourceContext.drawImage(image, 0, 0, sourceWidth, sourceHeight);
+      const subjectFocus = detectFocusedSubjectBox({
+        context: sourceContext,
+        width: sourceWidth,
+        height: sourceHeight,
+      });
+
       const size = 96;
       const canvas = document.createElement("canvas");
       canvas.width = size;
@@ -241,11 +487,24 @@ const analyzeImageScan = (file) =>
           paletteColors: [],
           qualityScore: 0,
           qualityHints: ["Unable to scan this image in your browser."],
+          focusApplied: false,
+          focusCoverage: 0,
+          focusPreview: "",
         });
         return;
       }
 
-      context.drawImage(image, 0, 0, size, size);
+      context.drawImage(
+        sourceCanvas,
+        subjectFocus.box.x,
+        subjectFocus.box.y,
+        subjectFocus.box.width,
+        subjectFocus.box.height,
+        0,
+        0,
+        size,
+        size,
+      );
       const pixels = context.getImageData(0, 0, size, size).data;
       let r = 0;
       let g = 0;
@@ -298,6 +557,14 @@ const analyzeImageScan = (file) =>
           paletteColors: [],
           qualityScore: 0,
           qualityHints: ["Image appears empty or fully transparent."],
+          focusApplied: subjectFocus.applied,
+          focusCoverage: subjectFocus.coverage,
+          focusPreview: subjectFocus.applied
+            ? createFocusedPreview({
+                sourceCanvas,
+                cropBox: subjectFocus.box,
+              })
+            : "",
         });
         return;
       }
@@ -355,6 +622,11 @@ const analyzeImageScan = (file) =>
       if (exposureScore < 0.3) {
         qualityHints.push("Exposure is too dark or too bright. Adjust lighting for cleaner scanning.");
       }
+      if (!subjectFocus.applied) {
+        qualityHints.push("Keep the item centered and use a simpler background so the scanner can isolate it better.");
+      } else if (subjectFocus.coverage < 0.2) {
+        qualityHints.push("The item takes up a small part of the frame. Move closer for more accurate matching.");
+      }
 
       resolve(
         {
@@ -362,6 +634,14 @@ const analyzeImageScan = (file) =>
           paletteColors,
           qualityScore,
           qualityHints,
+          focusApplied: subjectFocus.applied,
+          focusCoverage: Math.round(clamp(subjectFocus.coverage) * 100),
+          focusPreview: subjectFocus.applied
+            ? createFocusedPreview({
+                sourceCanvas,
+                cropBox: subjectFocus.box,
+              })
+            : "",
         },
       );
     };
@@ -373,6 +653,9 @@ const analyzeImageScan = (file) =>
         paletteColors: [],
         qualityScore: 0,
         qualityHints: ["Image scan failed. Try another file."],
+        focusApplied: false,
+        focusCoverage: 0,
+        focusPreview: "",
       });
     };
 
@@ -390,6 +673,7 @@ const truncateFileName = (fileName = "", maxLength = 32) => {
 const MatchResults = () => {
   const fileInputRef = useRef(null);
   const lostPickerRef = useRef(null);
+  const navigate = useNavigate();
   const { session } = useAuth();
   const [searchParams] = useSearchParams();
   const [selectedLostItemId, setSelectedLostItemId] = useState("");
@@ -397,14 +681,17 @@ const MatchResults = () => {
   const [controlTab, setControlTab] = useState("select");
   const [matchMode, setMatchMode] = useState(() => (searchParams.get("mode") === "high" ? "high" : "all"));
   const [dragActive, setDragActive] = useState(false);
+  const [isReportChoiceModalOpen, setIsReportChoiceModalOpen] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [aiDetection, setAiDetection] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [marketplaceItems, setMarketplaceItems] = useState([]);
+  const [itemImageSignatures, setItemImageSignatures] = useState({});
   const [isLoadingItems, setIsLoadingItems] = useState(true);
   const [loadError, setLoadError] = useState("");
   const latestScanIdRef = useRef(0);
+  const itemSignatureCacheRef = useRef(new Map());
 
   useEffect(() => {
     let mounted = true;
@@ -441,14 +728,81 @@ const MatchResults = () => {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const foundItems = marketplaceItems.filter(
+      (item) => item.status === "Found" && item.hasRealImage && item.image,
+    );
+
+    if (!foundItems.length) {
+      return undefined;
+    }
+
+    const loadItemSignatures = async () => {
+      const nextEntries = {};
+      const chunkSize = 8;
+
+      for (let index = 0; index < foundItems.length; index += chunkSize) {
+        const chunk = foundItems.slice(index, index + chunkSize);
+        const resolved = await Promise.all(
+          chunk.map(async (item) => {
+            const cached = itemSignatureCacheRef.current.get(item.image);
+            if (cached) {
+              return [item.id, cached];
+            }
+
+            const signature = await createVisualSignatureFromUrl(item.image);
+            if (signature) {
+              itemSignatureCacheRef.current.set(item.image, signature);
+            }
+            return [item.id, signature];
+          }),
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        resolved.forEach(([itemId, signature]) => {
+          if (signature) {
+            nextEntries[itemId] = signature;
+          }
+        });
+
+        if (Object.keys(nextEntries).length) {
+          setItemImageSignatures((current) => ({
+            ...current,
+            ...nextEntries,
+          }));
+        }
+      }
+    };
+
+    loadItemSignatures();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [marketplaceItems]);
+
   const currentUserId = session?.user?.id || "";
+
+  const enrichedMarketplaceItems = useMemo(
+    () =>
+      marketplaceItems.map((item) => ({
+        ...item,
+        imageSignature: itemImageSignatures[item.id] || null,
+      })),
+    [marketplaceItems, itemImageSignatures],
+  );
 
   const lostItems = useMemo(
     () =>
-      marketplaceItems.filter(
+      enrichedMarketplaceItems.filter(
         (item) => item.status === "Lost" && (!currentUserId || item.reporterId === currentUserId),
       ),
-    [marketplaceItems, currentUserId],
+    [enrichedMarketplaceItems, currentUserId],
   );
 
   const selectedLostItem = useMemo(
@@ -508,12 +862,16 @@ const MatchResults = () => {
       category: aiDetection.category || "",
       locationLost: "Unknown",
       dateLost: "",
-      description: `Image scan detected ${aiDetection.detectedLabel.toLowerCase()} with dominant ${aiDetection.color} color and ${aiDetection.scanQuality}% scan quality.`,
+      description: `Image scan detected ${aiDetection.detectedLabel.toLowerCase()} with dominant ${aiDetection.color} color, ${aiDetection.scanQuality}% scan quality, and ${aiDetection.focusApplied ? "focused object isolation" : "full-frame scanning"}.`,
       identifiers: looksLikeGenericCameraName(uploadedFile?.name || "") ? "" : uploadedFile?.name || "",
       color: aiDetection.color,
       paletteColors: aiDetection.paletteColors || [],
       brand: "",
       scanQuality: aiDetection.scanQuality || 0,
+      imageConfidence: aiDetection.confidence || 0,
+      focusCoverage: aiDetection.focusCoverage || 0,
+      imageSignature: aiDetection.imageSignature || null,
+      imageFileName: uploadedFile?.name || "",
       hasImage: true,
     };
   }, [aiDetection, uploadedFile]);
@@ -521,7 +879,10 @@ const MatchResults = () => {
   const activeLostReport = controlTab === "upload" && quickImageLostReport ? quickImageLostReport : dropdownLostReport;
   const activeSource = controlTab === "upload" && quickImageLostReport ? "image" : "report";
 
-  const allMatches = useMemo(() => rankFoundMatches(activeLostReport, marketplaceItems, 20), [activeLostReport, marketplaceItems]);
+  const allMatches = useMemo(
+    () => rankFoundMatches(activeLostReport, enrichedMarketplaceItems, 20),
+    [activeLostReport, enrichedMarketplaceItems],
+  );
 
   const visibleMatches = useMemo(() => {
     if (matchMode === "all") {
@@ -544,7 +905,10 @@ const MatchResults = () => {
     setAiDetection(null);
     setIsScanning(true);
 
-    const scan = await analyzeImageScan(file);
+    const [scan, imageSignature] = await Promise.all([
+      analyzeImageScan(file),
+      createVisualSignatureFromFile(file),
+    ]);
 
     if (latestScanIdRef.current !== scanId) {
       return;
@@ -577,6 +941,7 @@ const MatchResults = () => {
       normalizedLabel !== "Uploaded item",
       (scan.paletteColors || []).length > 1,
       Number(scan.qualityScore || 0) >= 55,
+      scan.focusApplied,
     ].filter(Boolean).length;
 
     setAiDetection({
@@ -586,7 +951,11 @@ const MatchResults = () => {
       detectedLabel: normalizedLabel,
       scanQuality: Number(scan.qualityScore || 0),
       qualityHints: scan.qualityHints || [],
-      confidence: Math.round((matchingSignals / 5) * 100),
+      confidence: Math.round((matchingSignals / 6) * 100),
+      focusApplied: Boolean(scan.focusApplied),
+      focusCoverage: Number(scan.focusCoverage || 0),
+      focusPreview: scan.focusPreview || "",
+      imageSignature,
     });
     setIsScanning(false);
   };
@@ -606,6 +975,24 @@ const MatchResults = () => {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  };
+
+  const openReportChoiceModal = () => {
+    setIsReportChoiceModalOpen(true);
+  };
+
+  const closeReportChoiceModal = () => {
+    setIsReportChoiceModalOpen(false);
+  };
+
+  const handleReportChoice = (type) => {
+    setIsReportChoiceModalOpen(false);
+    if (type === "lost") {
+      navigate("/report/lost");
+      return;
+    }
+
+    navigate("/report/found");
   };
 
   const highCount = allMatches.filter((item) => item.match.score >= HIGH_CONFIDENCE_THRESHOLD).length;
@@ -771,7 +1158,7 @@ const MatchResults = () => {
                         <FontAwesomeIcon icon={faImage} />
                         <span className="match-image-name-text">{shortUploadedName}</span>
                       </p>
-                      <button type="button" className="match-inline-button" onClick={resetQuickMatch}>
+                      <button type="button" className="match-inline-button" onClick={openReportChoiceModal}>
                         Use report instead
                       </button>
                     </div>
@@ -798,6 +1185,12 @@ const MatchResults = () => {
                       <div>
                         <span>Scan quality</span>
                         <strong>{aiDetection.scanQuality}%</strong>
+                      </div>
+                      <div>
+                        <span>Object focus</span>
+                        <strong>
+                          {aiDetection.focusApplied ? `${aiDetection.focusCoverage}%` : "Full frame"}
+                        </strong>
                       </div>
                     </div>
 
@@ -871,6 +1264,45 @@ const MatchResults = () => {
           </section>
         </div>
       </section>
+
+      <Modal
+        isOpen={isReportChoiceModalOpen}
+        onClose={closeReportChoiceModal}
+        ariaLabel="Choose report type"
+        overlayClassName="match-report-choice-overlay"
+        panelClassName="match-report-choice-panel"
+      >
+        <div className="match-report-choice-head">
+          <p className="page-kicker">Report item</p>
+          <h3>What do you want to report?</h3>
+          <p>Select whether you lost an item or found one so we can open the correct report form.</p>
+        </div>
+
+        <div className="match-report-choice-actions">
+          <button
+            type="button"
+            className="match-report-choice-button"
+            onClick={() => handleReportChoice("lost")}
+          >
+            Report lost item
+          </button>
+          <button
+            type="button"
+            className="match-report-choice-button"
+            onClick={() => handleReportChoice("found")}
+          >
+            Report found item
+          </button>
+        </div>
+
+        <button
+          type="button"
+          className="match-report-choice-cancel"
+          onClick={closeReportChoiceModal}
+        >
+          Cancel
+        </button>
+      </Modal>
 
       <section className="page-card match-safety-reminder">
         <div className="match-safety-icon">

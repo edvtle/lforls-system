@@ -1,3 +1,5 @@
+import { compareVisualSignatures } from "./imageMatching";
+
 const WEIGHTS = {
   category: 20,
   name: 20,
@@ -18,14 +20,25 @@ const CATEGORY_ALIASES = {
   electronics: "electronics",
   gadget: "electronics",
   gadgets: "electronics",
-  wallet: "wallet",
-  purse: "wallet",
+  charger: "electronics",
+  headphones: "electronics",
+  laptop: "electronics",
+  phone: "electronics",
+  tablet: "electronics",
+  accessories: "accessories",
+  personal: "accessories",
+  wallet: "accessories",
+  purse: "accessories",
+  key: "keys",
+  keys: "keys",
   bag: "bag",
+  bags: "bag",
   backpack: "bag",
   tote: "bag",
   id: "id",
   "id card": "id",
   card: "id",
+  "card holder": "id",
   clothing: "clothing",
   clothes: "clothing",
   jacket: "clothing",
@@ -255,14 +268,57 @@ const imageSimilarity = (lostReport, foundItem) => {
     return 0;
   }
 
+  const visualSignatureScore = compareVisualSignatures(
+    lostReport.imageSignature,
+    foundItem.imageSignature,
+  );
+
+  const labelScore = Math.max(
+    nameSimilarity(lostReport.itemName, foundItem.name),
+    jaccardSimilarity(
+      `${lostReport.itemName} ${lostReport.description || ""}`,
+      `${foundItem.name} ${foundItem.description || ""} ${foundItem.brand || ""} ${foundItem.serialNumber || ""}`,
+    ),
+    bigramSimilarity(
+      `${lostReport.itemName} ${lostReport.description || ""}`,
+      `${foundItem.name} ${foundItem.description || ""} ${foundItem.brand || ""} ${foundItem.serialNumber || ""}`,
+    ),
+  ) * 0.58;
+
+  const colorScore = colorSimilarity(lostReport, foundItem) * 0.27;
+
   const categoryScore =
-    categorySimilarity(lostReport.category, foundItem.category) * 0.25;
+    categorySimilarity(lostReport.category, foundItem.category) * 0.08;
 
-  const colorScore = colorSimilarity(lostReport, foundItem) * 0.55;
+  const descriptorScore = Math.max(
+    jaccardSimilarity(
+      `${lostReport.description || ""} ${lostReport.color || ""}`,
+      `${foundItem.description || ""} ${foundItem.color || ""}`,
+    ),
+    bigramSimilarity(
+      `${lostReport.description || ""} ${lostReport.color || ""}`,
+      `${foundItem.description || ""} ${foundItem.color || ""}`,
+    ),
+  ) * 0.04;
 
-  const qualityScore = clamp(Number(lostReport.scanQuality || 0) / 100) * 0.2;
+  const qualityScore = clamp(Number(lostReport.scanQuality || 0) / 100) * 0.02;
+  const confidenceScore = clamp(Number(lostReport.imageConfidence || 0) / 100) * 0.01;
 
-  return clamp(categoryScore + colorScore + qualityScore);
+  if (visualSignatureScore > 0) {
+    return clamp(
+      visualSignatureScore * 0.82 +
+        labelScore * 0.09 +
+        colorScore * 0.04 +
+        categoryScore * 0.02 +
+        descriptorScore * 0.01 +
+        qualityScore * 0.01 +
+        confidenceScore * 0.01,
+    );
+  }
+
+  return clamp(
+    labelScore + colorScore + categoryScore + descriptorScore + qualityScore + confidenceScore,
+  );
 };
 
 const identifierSimilarity = (left = "", right = "") => {
@@ -329,7 +385,26 @@ export const getConfidenceLabel = (score) => {
   return "Weak Match";
 };
 
+const getEffectiveWeights = (lostReport) => {
+  if (!lostReport?.hasImage) {
+    return WEIGHTS;
+  }
+
+  return {
+    ...WEIGHTS,
+    category: 22,
+    name: 22,
+    location: 8,
+    date: 6,
+    description: 18,
+    identifier: 8,
+    brand: 6,
+    image: 18,
+  };
+};
+
 export const computeMatch = (lostReport, foundItem) => {
+  const effectiveWeights = getEffectiveWeights(lostReport);
   const categoryScore = categorySimilarity(
     lostReport.category,
     foundItem.category,
@@ -355,14 +430,14 @@ export const computeMatch = (lostReport, foundItem) => {
   const imageScore = imageSimilarity(lostReport, foundItem);
 
   const breakdown = {
-    category: Math.round(categoryScore * WEIGHTS.category),
-    name: Math.round(nameScore * WEIGHTS.name),
-    location: Math.round(locationScore * WEIGHTS.location),
-    date: Math.round(dateScore * WEIGHTS.date),
-    description: Math.round(descriptionScore * WEIGHTS.description),
-    identifier: Math.round(identifierScore * WEIGHTS.identifier),
-    brand: Math.round(brandScore * WEIGHTS.brand),
-    image: Math.round(imageScore * WEIGHTS.image),
+    category: Math.round(categoryScore * effectiveWeights.category),
+    name: Math.round(nameScore * effectiveWeights.name),
+    location: Math.round(locationScore * effectiveWeights.location),
+    date: Math.round(dateScore * effectiveWeights.date),
+    description: Math.round(descriptionScore * effectiveWeights.description),
+    identifier: Math.round(identifierScore * effectiveWeights.identifier),
+    brand: Math.round(brandScore * effectiveWeights.brand),
+    image: Math.round(imageScore * effectiveWeights.image),
   };
 
   const rawScore = Object.values(breakdown).reduce(
@@ -370,7 +445,7 @@ export const computeMatch = (lostReport, foundItem) => {
     0,
   );
 
-  const availableWeight = Object.entries(WEIGHTS).reduce(
+  const availableWeight = Object.entries(effectiveWeights).reduce(
     (sum, [key, weight]) => {
       if (key === "category") {
         return sum + (hasMeaningfulText(lostReport.category) ? weight : 0);
@@ -497,13 +572,23 @@ export const computeMatch = (lostReport, foundItem) => {
     conflictPenalty *= 0.86;
   }
 
+  if (lostReport?.hasImage) {
+    if (imageScore < 0.22 && categoryScore < 0.35 && nameScore < 0.2) {
+      conflictPenalty *= 0.72;
+    }
+
+    if (imageScore >= 0.58 && (categoryScore >= 0.45 || nameScore >= 0.4)) {
+      conflictPenalty *= 1.06;
+    }
+  }
+
   const gapDays = dateGapDays(lostReport.dateLost, foundItem.date);
   if (gapDays !== null && gapDays > 45) {
     conflictPenalty *= 0.92;
   }
 
-  const coverage = availableWeight ? availableWeight / TOTAL_WEIGHT : 0;
-  const coverageDamping = 0.55 + coverage * 0.45;
+  const coverage = availableWeight ? availableWeight / Object.values(effectiveWeights).reduce((sum, value) => sum + value, 0) : 0;
+  const coverageDamping = lostReport?.hasImage ? 0.7 + coverage * 0.3 : 0.55 + coverage * 0.45;
   const score = Math.round(
     clamp(
       (normalizedScore / 100) *
@@ -545,8 +630,20 @@ export const rankFoundMatches = (lostReport, items, limit = 8) => {
     return [];
   }
 
+  const sourceItemId = String(lostReport.sourceItemId || "").trim();
+
   return items
-    .filter((item) => item.status === "Found")
+    .filter((item) => {
+      if (!item) {
+        return false;
+      }
+
+      if (sourceItemId && String(item.id || "").trim() === sourceItemId) {
+        return false;
+      }
+
+      return item.status === "Found" || item.status === "Lost";
+    })
     .map((item) => {
       const match = computeMatch(lostReport, item);
       return {
