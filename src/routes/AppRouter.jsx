@@ -32,6 +32,10 @@ const PublicAuthRoute = ({ children }) => {
     return children;
   }
 
+  if (!profile?.id) {
+    return <Navigate to="/auth" replace />;
+  }
+
   const status = String(profile?.status || "active").toLowerCase();
   if (status === "suspended" || status === "banned") {
     return children;
@@ -48,6 +52,10 @@ const RequireRole = ({ roles, children }) => {
   }
 
   if (!isAuthenticated) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  if (!profile?.id) {
     return <Navigate to="/auth" replace />;
   }
 

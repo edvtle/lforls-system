@@ -16,6 +16,9 @@ import { isSupabaseConfigured } from "../services/supabaseClient";
 
 const AuthContext = createContext(null);
 
+const isMissingAccountError = (error) =>
+  String(error?.code || "").toUpperCase() === "ACCOUNT_NOT_FOUND";
+
 const normalizeAuth = async (session) => {
   if (!session?.user) {
     return { session: null, profile: null };
@@ -46,6 +49,11 @@ const normalizeAuth = async (session) => {
   return { session, profile };
 };
 
+const clearAuthState = ({ setSession, setProfile }) => {
+  setSession(null);
+  setProfile(null);
+};
+
 export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -69,8 +77,14 @@ export const AuthProvider = ({ children }) => {
         setProfile(normalized.profile);
       } catch (error) {
         if (!mounted) return;
-        setSession(null);
-        setProfile(null);
+        if (isMissingAccountError(error)) {
+          try {
+            await authSignOut();
+          } catch {
+            // Keep local auth state cleared even if remote sign-out fails.
+          }
+        }
+        clearAuthState({ setSession, setProfile });
       } finally {
         if (mounted) {
           setIsInitializing(false);
@@ -94,10 +108,16 @@ export const AuthProvider = ({ children }) => {
         if (!mounted) return;
         setSession(normalized.session);
         setProfile(normalized.profile);
-      } catch {
+      } catch (error) {
         if (!mounted) return;
-        setSession(nextSession);
-        setProfile(null);
+        if (isMissingAccountError(error)) {
+          try {
+            await authSignOut();
+          } catch {
+            // Keep local auth state cleared even if remote sign-out fails.
+          }
+        }
+        clearAuthState({ setSession, setProfile });
       }
     });
 
@@ -109,7 +129,21 @@ export const AuthProvider = ({ children }) => {
 
   const signIn = async ({ email, password }) => {
     const { session: nextSession } = await authSignIn({ email, password });
-    let normalized = await normalizeAuth(nextSession);
+    let normalized;
+
+    try {
+      normalized = await normalizeAuth(nextSession);
+    } catch (error) {
+      if (isMissingAccountError(error)) {
+        try {
+          await authSignOut();
+        } catch {
+          // Keep local auth state cleared even if remote sign-out fails.
+        }
+        clearAuthState({ setSession, setProfile });
+      }
+      throw error;
+    }
 
     let status = String(normalized.profile?.status || "active").toLowerCase();
     const suspendedUntil = String(normalized.profile?.suspendedUntil || "");
@@ -135,8 +169,7 @@ export const AuthProvider = ({ children }) => {
 
     if (status === "suspended" || status === "banned") {
       await authSignOut();
-      setSession(null);
-      setProfile(null);
+      clearAuthState({ setSession, setProfile });
       const error = new Error(
         status === "banned"
           ? "Your account has been banned. Please contact an administrator."
@@ -175,8 +208,7 @@ export const AuthProvider = ({ children }) => {
 
   const signOut = async () => {
     await authSignOut();
-    setSession(null);
-    setProfile(null);
+    clearAuthState({ setSession, setProfile });
   };
 
   const requestPasswordResetCode = async ({ email }) => {
@@ -193,8 +225,7 @@ export const AuthProvider = ({ children }) => {
 
   const updatePasswordAfterReset = async ({ email, newPassword, resetToken }) => {
     const result = await authUpdatePasswordAfterReset({ email, newPassword, resetToken });
-    setSession(null);
-    setProfile(null);
+    clearAuthState({ setSession, setProfile });
     return result;
   };
 

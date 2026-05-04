@@ -6,6 +6,14 @@ const assertSupabase = () => {
   }
 };
 
+const createMissingAccountError = () => {
+  const error = new Error(
+    "This account no longer exists. Please contact the system administrator.",
+  );
+  error.code = "ACCOUNT_NOT_FOUND";
+  return error;
+};
+
 const normalizeProfile = (profile, fallbackEmail = "") => ({
   id: profile?.id || "",
   fullName: profile?.full_name || "",
@@ -247,10 +255,7 @@ export const fetchProfileById = async (userId, fallbackEmail = "") => {
   }
 
   if (!data) {
-    return normalizeProfile(
-      { id: userId, email: fallbackEmail, role: "user", status: "active" },
-      fallbackEmail,
-    );
+    throw createMissingAccountError();
   }
 
   return normalizeProfile(data, fallbackEmail);

@@ -90,6 +90,22 @@ const parseBody = async (req) => {
 
 const normalizeEmail = (email = "") => String(email).trim().toLowerCase();
 
+const missingRelationCodes = new Set(["42P01", "42703"]);
+
+const isMissingRelationError = (error) => {
+  if (!error) {
+    return false;
+  }
+
+  const message = String(error.message || "").toLowerCase();
+  return (
+    missingRelationCodes.has(String(error.code || "").toUpperCase()) ||
+    message.includes("does not exist") ||
+    message.includes("undefined table") ||
+    message.includes("undefined column")
+  );
+};
+
 const ensureSchema = async () => {
   await db.query(`
     create table if not exists public.password_reset_codes (
@@ -682,14 +698,100 @@ const resetPassword = async (email, resetToken, newPassword) => {
   return { ok: true };
 };
 
+const deleteIfExists = async (statement, params = []) => {
+  try {
+    await db.query(statement, params);
+  } catch (error) {
+    if (isMissingRelationError(error)) {
+      return;
+    }
+    throw error;
+  }
+};
+
 const deleteUserAccount = async (userId) => {
   if (!userId) {
     return { ok: false, message: "User ID is required." };
   }
+
   try {
     await db.query("begin");
 
-    // Delete auth row first; profile row is removed by trigger.
+    const { rows: userRows } = await db.query(
+      `
+        select id, lower(email) as email
+        from auth.users
+        where id = $1
+        limit 1
+      `,
+      [userId],
+    );
+    const authUser = userRows[0] || null;
+
+    if (authUser?.email) {
+      await db.query(`delete from public.password_reset_codes where email = $1`, [
+        authUser.email,
+      ]);
+    }
+
+    await deleteIfExists(
+      `delete from public.claims where reviewed_by = $1`,
+      [userId],
+    );
+    await deleteIfExists(
+      `delete from public.reports where user_id = $1`,
+      [userId],
+    );
+    await deleteIfExists(
+      `delete from public.flags where reporter_id = $1 or target_user_id = $1`,
+      [userId],
+    );
+    await deleteIfExists(
+      `delete from public.notifications where user_id = $1`,
+      [userId],
+    );
+    await deleteIfExists(
+      `delete from public.message_messages where sender_id = $1`,
+      [userId],
+    );
+    await deleteIfExists(
+      `delete from public.messages where sender_id = $1`,
+      [userId],
+    );
+    await deleteIfExists(
+      `delete from public.message_participants where user_id = $1`,
+      [userId],
+    );
+
+    const { rows: itemRows } = await db.query(
+      `
+        select id
+        from public.items
+        where reporter_id = $1
+      `,
+      [userId],
+    );
+    const itemIds = itemRows.map((row) => row.id).filter(Boolean);
+
+    if (itemIds.length) {
+      await deleteIfExists(
+        `delete from public.reports where item_id = any($1::uuid[])`,
+        [itemIds],
+      );
+      await deleteIfExists(
+        `delete from public.flags where item_id = any($1::uuid[])`,
+        [itemIds],
+      );
+      await deleteIfExists(
+        `delete from public.items where id = any($1::uuid[])`,
+        [itemIds],
+      );
+    }
+
+    const profileDeleteResult = await db.query(
+      `delete from public.profiles where id = $1`,
+      [userId],
+    );
     const authDeleteResult = await db.query(
       `delete from auth.users where id = $1`,
       [userId],
@@ -697,11 +799,19 @@ const deleteUserAccount = async (userId) => {
 
     await db.query("commit");
 
-    if (!authDeleteResult.rowCount) {
-      return { ok: false, message: "User account not found in auth.users." };
+    if (!authDeleteResult.rowCount && !profileDeleteResult.rowCount) {
+      return {
+        ok: false,
+        message: "User account was not found in auth.users or profiles.",
+      };
     }
 
-    return { ok: true };
+    return {
+      ok: true,
+      deletedAuthRows: authDeleteResult.rowCount,
+      deletedProfileRows: profileDeleteResult.rowCount,
+      deletedItemRows: itemIds.length,
+    };
   } catch (error) {
     await db.query("rollback");
     return { ok: false, message: error?.message || "Unable to delete user." };

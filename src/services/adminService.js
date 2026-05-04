@@ -951,14 +951,6 @@ export const deleteAdminFlag = async (flagId) => {
 export const deleteAdminUser = async (userId) => {
   assertSupabase();
 
-  // Preferred path: database RPC.
-  const { error: rpcError } = await supabase.rpc("admin_delete_user", {
-    target_user_id: userId,
-  });
-  if (!rpcError) {
-    return { success: true };
-  }
-
   let response;
   try {
     response = await fetch(`${resetApiBaseUrl}/api/admin/delete-user`, {
@@ -975,11 +967,22 @@ export const deleteAdminUser = async (userId) => {
   }
 
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(body?.error || "Failed to delete user account.");
+  if (response.ok) {
+    return body;
   }
 
-  return body;
+  const apiErrorMessage = body?.error || "Failed to delete user account.";
+
+  // Fallback path when the admin API is reachable but the database function is the only
+  // delete path available in the current environment.
+  const { error: rpcError } = await supabase.rpc("admin_delete_user", {
+    target_user_id: userId,
+  });
+  if (!rpcError) {
+    return { success: true };
+  }
+
+  throw new Error(apiErrorMessage);
 };
 
 const buildWarningBody = ({
